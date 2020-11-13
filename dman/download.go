@@ -1,7 +1,9 @@
+// -{go fmt %f}
 
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -28,28 +30,37 @@ type CopyInfo struct {
 
 type connection struct {
 	start, length, received, eta, lastReceived int
+	bufLen                                     int64
+	stop                                       chan bool
 	body                                       io.ReadCloser
 }
 
 func (conn *connection) DownloadBody(copyInfo chan CopyInfo) {
-	bufLen := int64(1024 * 64) // 64KB
-	remaining := int64(conn.length)
-	for remaining > bufLen {
-		copyInfo <- CopyInfo{
-			from:   conn.body,
-			start:  int64(conn.start + conn.received),
-			length: bufLen,
+	for conn.length-conn.received > int(conn.bufLen) {
+		select {
+		case <-conn.stop:
+			return
+		default:
+			copyInfo <- CopyInfo{
+				from:   conn.body,
+				start:  int64(conn.start + conn.received),
+				length: conn.bufLen,
+			}
+			conn.received += int(conn.bufLen)
 		}
-		conn.received += int(bufLen)
-		remaining = int64(conn.length - conn.received)
 	}
-	info := CopyInfo{from: conn.body, last: true}
-	if remaining > 0 {
-		info.start = int64(conn.start + conn.received)
-		info.length = remaining
+	select {
+	case <-conn.stop:
+		return
+	default:
+		info := CopyInfo{from: conn.body, last: true}
+		if conn.received < conn.length {
+			info.start = int64(conn.start + conn.received)
+			info.length = int64(conn.length - conn.received)
+		}
+		copyInfo <- info
+		conn.received = conn.length
 	}
-	copyInfo <- info
-	conn.received = conn.length
 }
 
 type Download struct {
@@ -58,14 +69,19 @@ type Download struct {
 	maxConns   int
 	minCutSize int
 	minCutEta  int
+	bufLen     int64
+	stopAdd    chan bool
+	// status
+	statInterval time.Duration
+	written      int
+	speed        float64
+	percent      float64
+	stopStatus   chan bool
 	// Dynamically set:
 	headers     [][]string
 	destination *os.File
 	filename    string
 	length      int
-	written     int
-	speed float64
-	percent float64
 	waitlist    sync.WaitGroup
 	connections []*connection
 	copyInfo    chan CopyInfo
@@ -155,6 +171,8 @@ func (down *Download) addConn(conn *connection, cutProgI int) bool {
 		return false
 	}
 	conn.body = resp.Body
+	conn.stop = make(chan bool)
+	conn.bufLen = down.bufLen
 	down.waitlist.Add(1)
 	// shorten last connection
 	down.connections[cutProgI].length -= conn.length
@@ -193,15 +211,14 @@ func (down *Download) copyData() {
 	}
 }
 
-func (down *Download) updateStatus(interval time.Duration, stop chan bool) {
+func (down *Download) updateStatus() {
 	var lastTime time.Time
 	lastWritten := 0
 	for {
 		select {
-		case sig := <- stop:
-			stop <- sig
-			break
-		case now := <- time.After(interval):
+		case <-down.stopStatus:
+			return
+		case now := <-time.After(down.statInterval):
 			duration := int(now.Sub(lastTime))
 			lastTime = now
 			for _, conn := range down.connections {
@@ -222,15 +239,16 @@ func (down *Download) updateStatus(interval time.Duration, stop chan bool) {
 	}
 }
 
-func (down *Download) start(stopChan chan os.Signal) {
-	// conn trackers (pointers)
+func (down *Download) startFirst() {
 	firstBody, filename, length := down.firstConn()
 	down.length = length
-	firstProg := &connection{
+	firstConn := &connection{
 		body:   firstBody,
 		length: length,
+		stop:   make(chan bool),
+		bufLen: down.bufLen,
 	}
-	down.connections = append(down.connections, firstProg)
+	down.connections = append(down.connections, firstConn)
 	// prepare destination file
 	file, err := os.Create(filename)
 	check(err)
@@ -238,38 +256,53 @@ func (down *Download) start(stopChan chan os.Signal) {
 	down.filename = filename
 	// for each goroutine to send their part to the file writer
 	down.copyInfo = make(chan CopyInfo)
-	// init minCutSize
-	if down.minCutSize == 0 {
-		down.minCutSize = 2e6 // 2MB
-	}
 	// prepare file writer routine, accepts info from chan
 	go down.copyData()
 	// write to file from first connection
-	go firstProg.DownloadBody(down.copyInfo)
+	go firstConn.DownloadBody(down.copyInfo)
 	// synchronize completions
 	down.waitlist.Add(1)
 	// update eta of each connection
-	stopStatus := make(chan bool)
-	go down.updateStatus(500 * time.Millisecond, stopStatus)
+	down.stopStatus = make(chan bool)
+	go down.updateStatus()
+}
+
+func (down *Download) startAdd() {
 	// add connections
 	for i := 1; i < down.maxConns; i++ {
-		conn, cutProgI := down.newConn(false)
-		ok := down.addConn(conn, cutProgI)
-		if !ok {
-			break
+		select {
+		case <-down.stopAdd:
+			return
+		default:
+			conn, cutProgI := down.newConn(false)
+			ok := down.addConn(conn, cutProgI)
+			if !ok {
+				break
+			}
 		}
-	}
-	select {
-	case <-stopChan:
-		// abort/pause
-	default:
-		down.waitlist.Wait()
-	}
-	close(down.copyInfo) // stop copyData
-	// stop eta calculation
-	stopStatus <- true
-	if <- stopStatus {
-		close(stopStatus)
 	}
 }
 
+func (down *Download) wait(interrupt chan os.Signal) bool {
+	overChan := make(chan bool)
+	go func() {
+		down.waitlist.Wait()
+		overChan <- true // finished normally
+	}()
+	var finished bool
+	select {
+	case <-interrupt:
+		// abort/pause
+		down.stopAdd <- true
+		for _, conn := range down.connections {
+			conn.stop <- true
+		}
+	case <-overChan:
+		finished = true
+	}
+	close(down.copyInfo) // stop copyData
+	// stop eta calculation
+	down.stopStatus <- true
+	close(down.stopStatus)
+	return finished
+}
