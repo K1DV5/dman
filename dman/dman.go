@@ -1,3 +1,4 @@
+// -{go run %f download.go gparted-live-1.0.0-5-i686.iso.dman}
 // -{go run %f download.go http://localhost/gparted-live-1.0.0-5-i686.iso}
 // -{go run %f download.go http://localhost/Adobe/_Getintopc.com_Duos_x64_x86_installer.zip}
 // -{go fmt %f}
@@ -18,7 +19,7 @@ const (
 )
 
 func showProgress(down *Download, stop chan bool) {
-	fmt.Printf("Downloading '%s' press Ctrl+C to stop.\n", down.filename)
+	fmt.Printf("\rDownloading '%s' press Ctrl+C to stop.\n", down.filename)
 	var speedUnit string
 	for {
 		select {
@@ -52,8 +53,11 @@ func showProgress(down *Download, stop chan bool) {
 
 func main() {
 	if len(os.Args) > 1 {
+		var resume bool
+		if arg := os.Args[1]; arg[:8] != "https://" && arg[:7] != "http://" {
+			resume = true
+		}
 		d := Download{
-			url:          os.Args[1],
 			maxConns:     32,
 			minCutEta:    5 * int(time.Second),
 			minCutSize:   1024 * 1024 * 2, // 2MB
@@ -65,14 +69,32 @@ func main() {
 		signal.Notify(interrupt, os.Interrupt)
 		stopProgress := make(chan bool)
 
-		d.startFirst() // set filename as well
+		if resume {
+			fmt.Print("Resuming...")
+			resumed := d.fromProgress(os.Args[1])  // set filename as well
+			if !resumed {
+				fmt.Print("\rResume error")
+				return
+			}
+		} else {
+			fmt.Print("Starting...")
+			d.url = os.Args[1]
+			d.startFirst() // set filename as well
+		}
+
 		go showProgress(&d, stopProgress)
 		go d.startAdd()
 		finished := d.wait(interrupt)
 		stopProgress <- finished
 		<-stopProgress
+		if !finished {
+			d.saveProgress()
+		}
 		close(stopProgress)
 		close(interrupt)
+		if resume {
+			// delete pause file
+		}
 	} else { // invocked from chrome
 		fmt.Println("No URL given")
 	}

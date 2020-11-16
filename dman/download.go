@@ -36,6 +36,7 @@ type connection struct {
 }
 
 func (conn *connection) DownloadBody(copyInfo chan CopyInfo) {
+	// TODO: cache chunks for faster writes
 	for conn.length-conn.received > int(conn.bufLen) {
 		select {
 		case <-conn.stop:
@@ -78,7 +79,7 @@ type Download struct {
 	percent      float64
 	stopStatus   chan bool
 	// Dynamically set:
-	headers     [][]string
+	headers     [][2]string
 	destination *os.File
 	filename    string
 	length      int
@@ -152,7 +153,7 @@ func (down *Download) addConn(conn *connection, cutProgI int) bool {
 	req, err := http.NewRequest("GET", down.url, nil)
 	check(err)
 	down.addHeaders(req)
-	req.Header.Add("Range", "bytes="+strconv.Itoa(conn.start)+"-"+strconv.Itoa(conn.start+conn.length-1))
+	req.Header.Add("Range", "bytes="+strconv.Itoa(conn.start + conn.received)+"-"+strconv.Itoa(conn.start+conn.length-1))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		panic(err)
@@ -165,17 +166,21 @@ func (down *Download) addConn(conn *connection, cutProgI int) bool {
 			panic(resp.Status)
 		}
 	}
-	cutProg := down.connections[cutProgI]
-	if cutProg.start+cutProg.received >= conn.start {
-		// no need for this one, go home
-		return false
+	if cutProgI > -1 {
+		cutProg := down.connections[cutProgI]
+		if cutProg.start+cutProg.received >= conn.start {
+			// no need for this one, go home
+			return false
+		}
 	}
 	conn.body = resp.Body
 	conn.stop = make(chan bool)
 	conn.bufLen = down.bufLen
 	down.waitlist.Add(1)
 	// shorten last connection
-	down.connections[cutProgI].length -= conn.length
+	if cutProgI > -1 {
+		down.connections[cutProgI].length -= conn.length
+	}
 	// add this conn to the collection, make sure to make it < down.maxConns
 	down.connections = append(down.connections, conn)
 	go conn.DownloadBody(down.copyInfo)
@@ -269,7 +274,8 @@ func (down *Download) startFirst() {
 
 func (down *Download) startAdd() {
 	// add connections
-	for i := 1; i < down.maxConns; i++ {
+	toAdd := down.maxConns - len(down.connections)
+	for i := 0; i < toAdd; i++ {
 		select {
 		case <-down.stopAdd:
 			return
@@ -293,16 +299,78 @@ func (down *Download) wait(interrupt chan os.Signal) bool {
 	select {
 	case <-interrupt:
 		// abort/pause
-		down.stopAdd <- true
+		if len(down.connections) < down.maxConns {
+			down.stopAdd <- true
+		}
 		for _, conn := range down.connections {
 			conn.stop <- true
 		}
 	case <-overChan:
 		finished = true
 	}
+	close(down.stopAdd)
 	close(down.copyInfo) // stop copyData
 	// stop eta calculation
 	down.stopStatus <- true
 	close(down.stopStatus)
 	return finished
+}
+
+func (down *Download) saveProgress() {
+	prog := progress{Url: down.url, Filename: down.filename}
+	for _, conn := range down.connections {
+		connProg := map[string]int{
+			"start": conn.start,
+			"length": conn.length,
+			"received": conn.received,
+		}
+		prog.Parts = append(prog.Parts, connProg)
+	}
+	data, err := json.Marshal(prog)
+	check(err)
+	f, err := os.Create(down.filename + ".dman")
+	check(err)
+	f.Write(data)
+	f.Close()
+}
+
+func (down *Download) fromProgress(filename string) bool {
+	var prog progress
+	f, err := os.Open(filename)
+	check(err)
+	json.NewDecoder(f).Decode(&prog)
+	down.url = prog.Url
+	down.filename = prog.Filename
+	file, err := os.OpenFile(down.filename, os.O_RDWR, 0644)
+	down.destination = file
+	check(err)
+	// for each goroutine to send their part to the file writer
+	down.copyInfo = make(chan CopyInfo)
+	// prepare file writer routine, accepts info from chan
+	go down.copyData()
+	// update eta of each connection
+	down.stopStatus = make(chan bool)
+	go down.updateStatus()
+	for _, conn := range prog.Parts {
+		added := down.addConn(&connection{
+			start: conn["start"],
+			length: conn["length"],
+			received: conn["received"],
+		}, -1)
+		if !added {
+			break
+		}
+		down.written += conn["received"]
+		down.length += conn["length"]
+	}
+	if len(down.connections) < len(prog.Parts) {
+		return false
+	}
+	return true
+}
+
+type progress struct {
+	Url string `json:"url"`
+	Filename string `json:"filename"`
+	Parts []map[string]int `json:"parts"`
 }
