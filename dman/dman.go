@@ -1,4 +1,3 @@
-// -{go run %f download.go gparted-live-1.0.0-5-i686.iso.dman}
 // -{go run %f download.go http://localhost/gparted-live-1.0.0-5-i686.iso}
 // -{go run %f download.go http://localhost/Adobe/_Getintopc.com_Duos_x64_x86_installer.zip}
 // -{go fmt %f}
@@ -65,9 +64,6 @@ func main() {
 			bufLen:       1024 * 64, // 128KB
 			stopAdd:      make(chan bool),
 		}
-		interrupt := make(chan os.Signal, 1)
-		signal.Notify(interrupt, os.Interrupt)
-		stopProgress := make(chan bool)
 
 		if resume {
 			fmt.Print("Resuming...")
@@ -82,9 +78,14 @@ func main() {
 			d.startFirst() // set filename as well
 		}
 
+		stopProgress := make(chan bool)
 		go showProgress(&d, stopProgress)
 		go d.startAdd()
+
+		interrupt := make(chan os.Signal, 1)
+		signal.Notify(interrupt, os.Interrupt)
 		finished := d.wait(interrupt)
+
 		stopProgress <- finished
 		<-stopProgress
 		if !finished {
