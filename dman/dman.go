@@ -1,5 +1,5 @@
-// -{go run %f download.go gparted-live-1.0.0-5-i686.iso.dman}
 // -{go run %f download.go http://localhost/gparted-live-1.0.0-5-i686.iso}
+// -{go run %f download.go gparted-live-1.0.0-5-i686.iso.dman}
 // -{go run %f download.go http://localhost/Adobe/_Getintopc.com_Duos_x64_x86_installer.zip}
 // -{go fmt %f}
 
@@ -57,11 +57,7 @@ func main() {
 		if arg := os.Args[1]; arg[:8] != "https://" && arg[:7] != "http://" {
 			resume = true
 		}
-		d := Download{
-			maxConns:     32,
-			stopAdd:      make(chan bool),
-		}
-
+		d := newDownload("", 32)
 		if resume {
 			fmt.Print("Resuming...")
 			resumed := d.fromProgress(os.Args[1])  // set url & filename as well

@@ -72,8 +72,8 @@ func (conn *connection) DownloadBody(writer chan writeInfo) {
 		if conn.received < conn.length {
 			remaining := conn.length - conn.received
 			conn.body.Read(cache[cacheI:cacheI + remaining])
-			conn.received += int(remaining)
-			cacheI += int(remaining)
+			conn.received += remaining
+			cacheI += remaining
 		}
 		writer <- writeInfo{
 			start: int64(conn.start + conn.received - cacheI),
@@ -267,17 +267,12 @@ func (down *Download) startFirst() {
 	check(err)
 	down.destination = file
 	down.filename = filename
-	// for each goroutine to send their part to the file writer
-	down.writer = make(chan writeInfo)
-	// prepare file writer routine, accepts info from chan
 	go down.writeData()
+	go down.updateStatus()
 	// write to file from first connection
 	go firstConn.DownloadBody(down.writer)
 	// synchronize completions
 	down.waitlist.Add(1)
-	// update eta of each connection
-	down.stopStatus = make(chan bool)
-	go down.updateStatus()
 }
 
 func (down *Download) startAdd() {
@@ -311,7 +306,6 @@ func (down *Download) wait(interrupt chan os.Signal) bool {
 			down.stopAdd <- true
 		}
 		for _, conn := range down.connections {
-			fmt.Println(conn.stop)
 			conn.stop <- true
 		}
 	case <-overChan:
@@ -351,14 +345,9 @@ func (down *Download) fromProgress(filename string) bool {
 	down.url = prog.Url
 	down.filename = prog.Filename
 	file, err := os.OpenFile(down.filename, os.O_RDWR, 0644)
-	down.destination = file
 	check(err)
-	// for each goroutine to send their part to the file writer
-	down.writer = make(chan writeInfo, 10)
-	// prepare file writer routine, accepts info from chan
+	down.destination = file
 	go down.writeData()
-	// update eta of each connection
-	down.stopStatus = make(chan bool)
 	go down.updateStatus()
 	for _, conn := range prog.Parts {
 		added := down.addConn(&connection{
@@ -379,4 +368,15 @@ type progress struct {
 	Url string `json:"url"`
 	Filename string `json:"filename"`
 	Parts []map[string]int `json:"parts"`
+}
+
+func newDownload(url string, maxConns int) Download {
+	down := Download{
+		url: url,
+		maxConns: maxConns,
+		writer: make(chan writeInfo),
+		stopStatus: make(chan bool),
+		stopAdd: make(chan bool),
+	}
+	return down
 }
