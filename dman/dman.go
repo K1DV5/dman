@@ -1,3 +1,4 @@
+// -{go run %f download.go gparted-live-1.0.0-5-i686.iso.dman}
 // -{go run %f download.go http://localhost/gparted-live-1.0.0-5-i686.iso}
 // -{go run %f download.go http://localhost/Adobe/_Getintopc.com_Duos_x64_x86_installer.zip}
 // -{go fmt %f}
@@ -22,7 +23,7 @@ func showProgress(down *Download, stop chan bool) {
 	var speedUnit string
 	for {
 		select {
-		case <-time.After(down.statInterval):
+		case <-time.After(STATINTERVAL):  // STATINTERVAL defined in download.go
 			speed := down.speed * float64(time.Second)
 			switch {
 			case speed > GB:
@@ -58,16 +59,12 @@ func main() {
 		}
 		d := Download{
 			maxConns:     32,
-			minCutEta:    5 * int(time.Second),
-			minCutSize:   1024 * 1024 * 2, // 2MB
-			statInterval: 500 * time.Millisecond,
-			bufLen:       1024 * 64, // 128KB
 			stopAdd:      make(chan bool),
 		}
 
 		if resume {
 			fmt.Print("Resuming...")
-			resumed := d.fromProgress(os.Args[1])  // set filename as well
+			resumed := d.fromProgress(os.Args[1])  // set url & filename as well
 			if !resumed {
 				fmt.Print("\rResume error")
 				return

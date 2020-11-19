@@ -15,6 +15,12 @@ import (
 	"time"
 )
 
+const BUFLEN int = 1 << 16  // 64KB, data interval to check if connection should stop
+const CACHELEN int = BUFLEN * 32  // in memory cache length for less io
+const MINCUTETA int = 5 * int(time.Second)  // min ramaining time to split connection
+const MINCUTSIZE int = 1 << 21  // 2MB, min remaining length to split a connection
+const STATINTERVAL time.Duration = 500 * time.Millisecond
+
 // error checker
 func check(err error) {
 	if err != nil {
@@ -30,7 +36,6 @@ type writeInfo struct {
 
 type connection struct {
 	start, length, received, eta, lastReceived int
-	bufLen                                     int64
 	stop                                       chan bool
 	body                                       io.ReadCloser
 }
@@ -38,26 +43,25 @@ type connection struct {
 func (conn *connection) DownloadBody(writer chan writeInfo) {
 	// also cache chunks for faster writes
 	defer conn.body.Close()
-	cacheLen := int(20 * conn.bufLen)
-	cache := make([]byte, cacheLen)
+	cache := make([]byte, CACHELEN)
 	var cacheI int
-	flushI := cacheLen - int(conn.bufLen)
-	for conn.length-conn.received > int(conn.bufLen) {
+	flushI := CACHELEN - BUFLEN
+	for conn.length-conn.received > BUFLEN {
 		select {
 		case <-conn.stop:
 			return
 		default:
-			conn.body.Read(cache[cacheI:cacheI + int(conn.bufLen)])
-			conn.received += int(conn.bufLen)
+			conn.body.Read(cache[cacheI:cacheI + BUFLEN])
+			conn.received += BUFLEN
 			if cacheI == flushI {  // flush cache
 				writer <- writeInfo{
 					start: int64(conn.start + conn.received - len(cache)),
 					data: cache[:],
 				}
-				cache = make([]byte, cacheLen)
+				cache = make([]byte, CACHELEN)
 				cacheI = 0
 			} else {
-				cacheI += int(conn.bufLen)
+				cacheI += BUFLEN
 			}
 		}
 	}
@@ -83,12 +87,8 @@ type Download struct {
 	// Required:
 	url        string
 	maxConns   int
-	minCutSize int
-	minCutEta  int
-	bufLen     int64
 	stopAdd    chan bool
 	// status
-	statInterval time.Duration
 	written      int
 	speed        float64
 	percent      float64
@@ -125,7 +125,7 @@ func (down *Download) newConn(retask bool) (*connection, int) {
 			longestI = i
 		}
 	}
-	if longest == nil || retask && longest.eta < down.minCutEta {
+	if longest == nil || retask && longest.eta < MINCUTETA {
 		return nil, -1
 	}
 	newLen := int(math.Ceil(float64(longestFree / 2)))
@@ -190,7 +190,6 @@ func (down *Download) addConn(conn *connection, cutConnI int) bool {
 	}
 	conn.body = resp.Body
 	conn.stop = make(chan bool)
-	conn.bufLen = down.bufLen
 	down.waitlist.Add(1)
 	// shorten last connection
 	if cutConnI > -1 {
@@ -206,9 +205,7 @@ func (down *Download) addConn(conn *connection, cutConnI int) bool {
 func (down *Download) writeData() {
 	defer down.destination.Close()
 	for info := range down.writer {
-		down.destination.Seek(info.start, 0)
-		_, err := down.destination.Write(info.data)
-		check(err)
+		down.destination.WriteAt(info.data, info.start)
 		down.written += len(info.data)
 		if !info.last {
 			continue
@@ -221,7 +218,7 @@ func (down *Download) writeData() {
 			continue
 		}
 		cutConn := down.connections[cutConnI]
-		if cutConn.length-cutConn.received > down.minCutSize {
+		if cutConn.length-cutConn.received > MINCUTSIZE {
 			// cutConn needs help
 			down.addConn(conn, cutConnI)
 		}
@@ -235,7 +232,7 @@ func (down *Download) updateStatus() {
 		select {
 		case <-down.stopStatus:
 			return
-		case now := <-time.After(down.statInterval):
+		case now := <-time.After(STATINTERVAL):
 			duration := int(now.Sub(lastTime))
 			lastTime = now
 			for _, conn := range down.connections {
@@ -263,7 +260,6 @@ func (down *Download) startFirst() {
 		body:   firstBody,
 		length: length,
 		stop:   make(chan bool),
-		bufLen: down.bufLen,
 	}
 	down.connections = append(down.connections, firstConn)
 	// prepare destination file
