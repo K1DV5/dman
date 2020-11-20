@@ -15,11 +15,15 @@ import (
 	"time"
 )
 
-const BUFLEN int = 1 << 16  // 64KB, data interval to check if connection should stop
-const CACHELEN int = BUFLEN * 32  // in memory cache length for less io
-const MINCUTETA int = 5 * int(time.Second)  // min ramaining time to split connection
-const MINCUTSIZE int = 1 << 21  // 2MB, min remaining length to split a connection
-const STATINTERVAL time.Duration = 500 * time.Millisecond
+const (
+	LEN_BUF = 1 << 16                // 64KB, data interval to check if connection should stop
+	LEN_CACHE = LEN_BUF * 32         // in memory cache length for less io
+	MINCUTETA = 5 * int(time.Second) // min ramaining time to split connection
+	MINCUTSIZE = 1 << 21             // 2MB, min remaining length to split a connection
+	STATINTERVAL = 500 * time.Millisecond
+	LARGE_ETA = 3 * 24 * int(time.Hour) // 3 days, arbitrarily large duration
+	WRITER_QUEUELEN = 10
+)
 
 // error checker
 func check(err error) {
@@ -30,8 +34,8 @@ func check(err error) {
 
 type writeInfo struct {
 	start int64
-	data []byte
-	last bool
+	data  []byte
+	last  bool
 }
 
 type connection struct {
@@ -43,25 +47,25 @@ type connection struct {
 func (conn *connection) DownloadBody(writer chan writeInfo) {
 	// also cache chunks for faster writes
 	defer conn.body.Close()
-	cache := make([]byte, CACHELEN)
+	cache := make([]byte, LEN_CACHE)
 	var cacheI int
-	flushI := CACHELEN - BUFLEN
-	for conn.length-conn.received > BUFLEN {
+	flushI := LEN_CACHE - LEN_BUF
+	for conn.length-conn.received > LEN_BUF {
 		select {
 		case <-conn.stop:
 			return
 		default:
-			conn.body.Read(cache[cacheI:cacheI + BUFLEN])
-			conn.received += BUFLEN
-			if cacheI == flushI {  // flush cache
+			conn.body.Read(cache[cacheI : cacheI+LEN_BUF])
+			conn.received += LEN_BUF
+			if cacheI == flushI { // flush cache
 				writer <- writeInfo{
 					start: int64(conn.start + conn.received - len(cache)),
-					data: cache[:],
+					data:  cache[:],
 				}
-				cache = make([]byte, CACHELEN)
+				cache = make([]byte, LEN_CACHE)
 				cacheI = 0
 			} else {
-				cacheI += BUFLEN
+				cacheI += LEN_BUF
 			}
 		}
 	}
@@ -71,36 +75,36 @@ func (conn *connection) DownloadBody(writer chan writeInfo) {
 	default:
 		if conn.received < conn.length {
 			remaining := conn.length - conn.received
-			conn.body.Read(cache[cacheI:cacheI + remaining])
+			conn.body.Read(cache[cacheI : cacheI+remaining])
 			conn.received += remaining
 			cacheI += remaining
 		}
 		writer <- writeInfo{
 			start: int64(conn.start + conn.received - cacheI),
-			data: cache[:cacheI],
-			last: true,
+			data:  cache[:cacheI],
+			last:  true,
 		}
 	}
 }
 
 type Download struct {
 	// Required:
-	url        string
-	maxConns   int
-	stopAdd    chan bool
+	url      string
+	maxConns int
 	// status
-	written      int
-	speed        float64
-	percent      float64
-	stopStatus   chan bool
+	written    int
+	speed      float64
+	percent    float64
+	stopStatus chan bool
 	// Dynamically set:
-	headers     [][2]string
+	headers     [][]string
 	destination *os.File
 	filename    string
 	length      int
 	waitlist    sync.WaitGroup
 	connections []*connection
-	writer    chan writeInfo
+	stopAdd  chan bool
+	writer      chan writeInfo
 }
 
 func (down *Download) getActiveConns() int {
@@ -153,9 +157,8 @@ func (down *Download) firstConn() (io.ReadCloser, string, int) {
 	}
 	length, err := strconv.Atoi(resp.Header["Content-Length"][0])
 	check(err)
-	disposition := resp.Header["Content-Disposition"]
 	var filename string
-	if len(disposition) > 0 {
+	if disposition := resp.Header["Content-Disposition"]; len(disposition) > 0 {
 		filename = disposition[0]
 	} else {
 		url_parts := strings.Split(down.url, "/")
@@ -168,7 +171,7 @@ func (down *Download) addConn(conn *connection, cutConnI int) bool {
 	req, err := http.NewRequest("GET", down.url, nil)
 	check(err)
 	down.addHeaders(req)
-	req.Header.Add("Range", "bytes="+strconv.Itoa(conn.start + conn.received)+"-"+strconv.Itoa(conn.start+conn.length-1))
+	req.Header.Add("Range", "bytes="+strconv.Itoa(conn.start+conn.received)+"-"+strconv.Itoa(conn.start+conn.length-1))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		panic(err)
@@ -239,7 +242,7 @@ func (down *Download) updateStatus() {
 				receivedDelta := conn.received - conn.lastReceived
 				speed := receivedDelta / duration
 				if speed == 0 {
-					conn.eta = 3 * 24 * 3600 * int(time.Second) // 3 days, arbitrarily large value
+					conn.eta = LARGE_ETA
 				} else {
 					conn.eta = (conn.length - conn.received) / speed
 				}
@@ -323,8 +326,8 @@ func (down *Download) saveProgress() {
 	prog := progress{Url: down.url, Filename: down.filename}
 	for _, conn := range down.connections {
 		connProg := map[string]int{
-			"start": conn.start,
-			"length": conn.length,
+			"start":    conn.start,
+			"length":   conn.length,
 			"received": conn.received,
 		}
 		prog.Parts = append(prog.Parts, connProg)
@@ -351,8 +354,8 @@ func (down *Download) fromProgress(filename string) bool {
 	go down.updateStatus()
 	for _, conn := range prog.Parts {
 		added := down.addConn(&connection{
-			start: conn["start"],
-			length: conn["length"],
+			start:    conn["start"],
+			length:   conn["length"],
 			received: conn["received"],
 		}, -1)
 		if !added {
@@ -365,18 +368,18 @@ func (down *Download) fromProgress(filename string) bool {
 }
 
 type progress struct {
-	Url string `json:"url"`
-	Filename string `json:"filename"`
-	Parts []map[string]int `json:"parts"`
+	Url      string           `json:"url"`
+	Filename string           `json:"filename"`
+	Parts    []map[string]int `json:"parts"`
 }
 
 func newDownload(url string, maxConns int) Download {
 	down := Download{
-		url: url,
-		maxConns: maxConns,
-		writer: make(chan writeInfo),
+		url:        url,
+		maxConns:   maxConns,
+		writer:     make(chan writeInfo, WRITER_QUEUELEN),
 		stopStatus: make(chan bool),
-		stopAdd: make(chan bool),
+		stopAdd:    make(chan bool),
 	}
 	return down
 }

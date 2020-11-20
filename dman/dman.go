@@ -1,6 +1,6 @@
 // -{go run %f download.go http://localhost/gparted-live-1.0.0-5-i686.iso}
+// -{go run %f download.go http://localhost/Adobe/_Getintopc.com_Adobe_Illustrator_CC_2019_2018-10-29.zip}
 // -{go run %f download.go gparted-live-1.0.0-5-i686.iso.dman}
-// -{go run %f download.go http://localhost/Adobe/_Getintopc.com_Duos_x64_x86_installer.zip}
 // -{go fmt %f}
 
 package main
@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	KB float64 = 1 << (10 * (iota + 1))
+	KB = 1 << (10 * (iota + 1))
 	MB
 	GB
 )
@@ -23,7 +23,7 @@ func showProgress(down *Download, stop chan bool) {
 	var speedUnit string
 	for {
 		select {
-		case <-time.After(STATINTERVAL):  // STATINTERVAL defined in download.go
+		case <-time.After(STATINTERVAL): // STATINTERVAL defined in download.go
 			speed := down.speed * float64(time.Second)
 			switch {
 			case speed > GB:
@@ -43,10 +43,10 @@ func showProgress(down *Download, stop chan bool) {
 			if finished {
 				fmt.Print("\r100%                             \n")
 			} else {
-				fmt.Println("\rInterrupted                                   \n")
+				fmt.Println("\rPaused                                   \n")
 			}
 			stop <- true
-			break
+			return
 		}
 	}
 }
@@ -60,7 +60,7 @@ func main() {
 		d := newDownload("", 32)
 		if resume {
 			fmt.Print("Resuming...")
-			resumed := d.fromProgress(os.Args[1])  // set url & filename as well
+			resumed := d.fromProgress(os.Args[1]) // set url & filename as well
 			if !resumed {
 				fmt.Print("\rResume error")
 				return
@@ -87,7 +87,7 @@ func main() {
 		close(stopProgress)
 		close(interrupt)
 		if resume {
-			// delete pause file
+			os.Remove(os.Args[1])
 		}
 	} else { // invocked from chrome
 		fmt.Println("No URL given")
