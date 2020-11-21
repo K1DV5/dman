@@ -38,6 +38,13 @@ type writeInfo struct {
 	last  bool
 }
 
+type status struct {
+	speed float64
+	written int
+	percent float64
+	conns int
+}
+
 type connection struct {
 	start, length, received, eta, lastReceived int
 	stop                                       chan bool
@@ -93,8 +100,7 @@ type Download struct {
 	maxConns int
 	// status
 	written    int
-	speed      float64
-	percent    float64
+	emitStatus chan status
 	stopStatus chan bool
 	// Dynamically set:
 	headers     [][]string
@@ -250,8 +256,14 @@ func (down *Download) updateStatus() {
 			}
 			writtenDelta := down.written - lastWritten
 			lastWritten = down.written
-			down.speed = float64(writtenDelta) / float64(duration)
-			down.percent = float64(down.written) / float64(down.length) * 100
+			if down.emitStatus != nil {
+				down.emitStatus <- status{
+					speed: float64(writtenDelta) / float64(duration),
+					percent: float64(down.written) / float64(down.length) * 100,
+					written: down.written,
+					conns: down.getActiveConns(),
+				}
+			}
 		}
 	}
 }
@@ -319,6 +331,9 @@ func (down *Download) wait(interrupt chan os.Signal) bool {
 	// stop eta calculation
 	down.stopStatus <- true
 	close(down.stopStatus)
+	if down.emitStatus != nil {
+		close(down.emitStatus)
+	}
 	return finished
 }
 
