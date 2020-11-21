@@ -198,7 +198,7 @@ func (down *Download) addConn(conn *connection, cutConnI int) bool {
 	if cutConnI > -1 {
 		down.connections[cutConnI].length -= conn.length
 	}
-	// add this conn to the collection, make sure to make it < down.maxConns
+	// add this conn to the collection
 	down.connections = append(down.connections, conn)
 	go conn.DownloadBody(down.writer)
 	return true
@@ -215,16 +215,16 @@ func (down *Download) writeData() {
 		}
 		// last one
 		down.waitlist.Done()
-		// try to start another one
-		conn, cutConnI := down.newConn(true)
-		if conn == nil {
-			continue
-		}
-		cutConn := down.connections[cutConnI]
-		if cutConn.length-cutConn.received > MINCUTSIZE {
-			// cutConn needs help
-			down.addConn(conn, cutConnI)
-		}
+		// // try to start another one
+		// conn, cutConnI := down.newConn(true)
+		// if conn == nil {
+		// 	continue
+		// }
+		// cutConn := down.connections[cutConnI]
+		// if cutConn.length-cutConn.received > MINCUTSIZE {
+		// 	// cutConn needs help
+		// 	down.addConn(conn, cutConnI)
+		// }
 	}
 }
 
@@ -296,10 +296,10 @@ func (down *Download) startAdd() {
 }
 
 func (down *Download) wait(interrupt chan os.Signal) bool {
-	overChan := make(chan bool)
+	over := make(chan bool)
 	go func() {
 		down.waitlist.Wait()
-		overChan <- true // finished normally
+		over <- true // finished normally
 	}()
 	var finished bool
 	select {
@@ -311,7 +311,7 @@ func (down *Download) wait(interrupt chan os.Signal) bool {
 		for _, conn := range down.connections {
 			conn.stop <- true
 		}
-	case <-overChan:
+	case <-over:
 		finished = true
 	}
 	close(down.stopAdd)
