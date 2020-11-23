@@ -254,7 +254,6 @@ func (down *Download) start() {
 		url: down.url,
 		headers: down.headers,
 		writer: down.writer,
-		stop: make(chan bool),
 	}
 	resp := firstConn.start()
 	if resp == nil {
