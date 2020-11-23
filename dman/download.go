@@ -16,11 +16,11 @@ import (
 )
 
 const (
-	LEN_BUF = 1 << 16                // 64KB, data interval to check if connection should stop
-	LEN_CACHE = LEN_BUF * 32         // in memory cache length for less io
-	MINCUTETA = 5 * int(time.Second) // min ramaining time to split connection
-	STATINTERVAL = 500 * time.Millisecond
-	LONG_TIME = 3 * 24 * int(time.Hour) // 3 days, arbitrarily large duration
+	LEN_CHECK       = 1 << 16              // 64KB, data interval to check if connection should stop
+	LEN_CACHE       = LEN_CHECK * 32         // in memory cache length for less io
+	MIN_CUT_ETA     = 5 * int(time.Second) // min ramaining time to split connection, 5 seconds
+	STAT_INTERVAL   = 500 * time.Millisecond
+	LONG_TIME       = 3 * 24 * int(time.Hour) // 3 days, arbitrarily large duration
 	WRITER_QUEUELEN = 10
 )
 
@@ -33,44 +33,38 @@ func check(err error) {
 
 type writeInfo struct {
 	offset int64
-	data  []byte
-	last  bool
+	data   []byte
+	last   bool
+	wrote  chan bool
 }
 
 type status struct {
-	speed float64
+	speed   float64
 	written int
 	percent float64
-	conns int
+	conns   int
 }
 
 type connection struct {
-	url string
-	headers [][]string
-	offset, length, received, eta, lastReceived int
-	stop                                       chan bool
-	body                                       io.ReadCloser
-	writer chan writeInfo
+	offset, length, received, written, eta int
+	stop                          chan bool
+	writer                        chan writeInfo
 }
 
-func (conn *connection) addHeaders(req *http.Request) {
-	for _, pair := range conn.headers {
+func (conn *connection) start(url string, headers [][]string) *http.Response {
+	req, err := http.NewRequest("GET", url, nil)
+	check(err)
+	for _, pair := range headers {
 		req.Header.Add(pair[0], pair[1])
 	}
-}
-
-func (conn *connection) start() *http.Response {
-	req, err := http.NewRequest("GET", conn.url, nil)
-	check(err)
-	conn.addHeaders(req)
 	if conn.length > 0 {
 		// request partial content
-		req.Header.Add("Range", "bytes="+strconv.Itoa(conn.offset+conn.received)+"-"+strconv.Itoa(conn.offset+conn.length-1))
+		req.Header.Add("Range", "bytes="+strconv.Itoa(conn.offset+conn.written)+"-"+strconv.Itoa(conn.offset+conn.length-1))
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		panic(err)
-	} else if conn.length > 0 && resp.StatusCode != 206 {  // partial content
+	} else if conn.length > 0 && resp.StatusCode != 206 { // partial content
 		resp.Body.Close()
 		if resp.StatusCode == 200 {
 			fmt.Println("Connection not resumable")
@@ -78,7 +72,7 @@ func (conn *connection) start() *http.Response {
 		} else {
 			panic(resp.Status)
 		}
-	} else if conn.length == 0 {  // full content, probably for first connection
+	} else if conn.length == 0 { // full content, probably for first connection
 		if resp.StatusCode != 200 {
 			resp.Body.Close()
 			panic(resp.Status)
@@ -86,36 +80,40 @@ func (conn *connection) start() *http.Response {
 	}
 	length, err := strconv.Atoi(resp.Header["Content-Length"][0])
 	conn.length = length
+	conn.received = conn.written
 	check(err)
-	conn.body = resp.Body
 	conn.stop = make(chan bool)
 	conn.eta = LONG_TIME
-	go conn.DownloadBody()
+	go conn.download(resp.Body)
 	return resp
 }
 
-func (conn *connection) DownloadBody() {
+func (conn *connection) download(body io.ReadCloser) {
 	// also cache chunks for faster writes
-	defer conn.body.Close()
+	defer body.Close()
 	cache := make([]byte, LEN_CACHE)
 	var cacheI int
-	flushI := LEN_CACHE - LEN_BUF
-	for conn.length-conn.received > LEN_BUF {
+	flushI := LEN_CACHE - LEN_CHECK
+	wrote := make(chan bool)  // to indicate that data has been written to disk
+	for conn.length-conn.received > LEN_CHECK {
 		select {
 		case <-conn.stop:
 			return
 		default:
-			conn.body.Read(cache[cacheI : cacheI+LEN_BUF])
-			conn.received += LEN_BUF
+			body.Read(cache[cacheI : cacheI+LEN_CHECK])
+			conn.received += LEN_CHECK
 			if cacheI == flushI { // flush cache
 				conn.writer <- writeInfo{
-					offset: int64(conn.offset + conn.received - len(cache)),
-					data:  cache[:],
+					offset: int64(conn.offset + conn.received - LEN_CACHE),
+					data:   cache[:],
+					wrote: wrote,
 				}
+				<-wrote
+				conn.written = conn.received
 				cache = make([]byte, LEN_CACHE)
 				cacheI = 0
 			} else {
-				cacheI += LEN_BUF
+				cacheI += LEN_CHECK
 			}
 		}
 	}
@@ -125,15 +123,18 @@ func (conn *connection) DownloadBody() {
 	default:
 		if conn.received < conn.length {
 			remaining := conn.length - conn.received
-			conn.body.Read(cache[cacheI : cacheI+remaining])
+			body.Read(cache[cacheI : cacheI+remaining])
 			conn.received += remaining
 			cacheI += remaining
 		}
 		conn.writer <- writeInfo{
 			offset: int64(conn.offset + conn.received - cacheI),
-			data:  cache[:cacheI],
-			last:  true,
+			data:   cache[:cacheI],
+			last:   true,
+			wrote: wrote,
 		}
+		<-wrote
+		conn.written = conn.received
 	}
 }
 
@@ -142,7 +143,6 @@ type Download struct {
 	url      string
 	maxConns int
 	// status
-	written    int
 	emitStatus chan status
 	stopStatus chan bool
 	// Dynamically set:
@@ -152,7 +152,7 @@ type Download struct {
 	length      int
 	waitlist    sync.WaitGroup
 	connections []*connection
-	stopAdd  chan bool
+	stopAdd     chan bool
 	writer      chan writeInfo
 }
 
@@ -176,18 +176,16 @@ func (down *Download) addConn() bool {
 			longestFree = free
 		}
 	}
-	if longest == nil || longest.eta < MINCUTETA {
+	if longest == nil || longest.eta < MIN_CUT_ETA {
 		return false
 	}
 	newLen := int(math.Ceil(float64(longestFree / 2)))
 	newConn := &connection{
-		url: down.url,
-		headers: down.headers,
-		offset:  longest.offset + longest.length - newLen,
+		offset: longest.offset + longest.length - newLen,
 		length: newLen,
 		writer: down.writer,
 	}
-	resp := newConn.start()
+	resp := newConn.start(down.url, down.headers)
 	if resp == nil {
 		return false
 	}
@@ -204,45 +202,48 @@ func (down *Download) writeData() {
 	defer down.destination.Close()
 	for info := range down.writer {
 		down.destination.WriteAt(info.data, info.offset)
-		down.written += len(info.data)
+		info.wrote <- true
 		if !info.last {
 			continue
 		}
 		// last chunk for this connection
 		down.waitlist.Done()
 		// try to start another one
-		// down.addConn()
+		down.addConn()
 	}
 }
 
 func (down *Download) updateStatus() {
 	var lastTime time.Time
-	lastWritten := 0
+	connLastReceived := make([]int, down.maxConns * 3)
+	var written, lastWritten int
 	for {
 		select {
 		case <-down.stopStatus:
 			return
-		case now := <-time.After(STATINTERVAL):
+		case now := <-time.After(STAT_INTERVAL):
 			duration := int(now.Sub(lastTime))
 			lastTime = now
-			for _, conn := range down.connections {
-				receivedDelta := conn.received - conn.lastReceived
+			written, lastWritten = 0, 0
+			for i, conn := range down.connections {
+				receivedDelta := conn.received - connLastReceived[i]
 				speed := receivedDelta / duration
 				if speed == 0 {
 					conn.eta = LONG_TIME
 				} else {
 					conn.eta = (conn.length - conn.received) / speed
 				}
-				conn.lastReceived = conn.received
+				lastWritten += connLastReceived[i]
+				connLastReceived[i] = conn.received
+				written += conn.received
 			}
-			writtenDelta := down.written - lastWritten
-			lastWritten = down.written
+			writtenDelta := written - lastWritten
 			if down.emitStatus != nil {
 				down.emitStatus <- status{
-					speed: float64(writtenDelta) / float64(duration),
-					percent: float64(down.written) / float64(down.length) * 100,
-					written: down.written,
-					conns: down.getActiveConns(),
+					speed:   float64(writtenDelta) / float64(duration),
+					percent: float64(written) / float64(down.length) * 100,
+					written: written,
+					conns:   down.getActiveConns(),
 				}
 			}
 		}
@@ -250,15 +251,13 @@ func (down *Download) updateStatus() {
 }
 
 func (down *Download) start() {
-	firstConn := connection{
-		url: down.url,
-		headers: down.headers,
-		writer: down.writer,
-	}
-	resp := firstConn.start()
+	firstConn := connection{writer: down.writer}
+	resp := firstConn.start(down.url, down.headers)
 	if resp == nil {
 		panic("error")
 	}
+	// wait for firstConn
+	down.waitlist.Add(1)
 	// get filename
 	if disposition := resp.Header["Content-Disposition"]; len(disposition) > 0 {
 		down.filename = disposition[0]
@@ -274,9 +273,6 @@ func (down *Download) start() {
 	down.destination = file
 	go down.writeData()
 	go down.updateStatus()
-	// wait for firstConn
-	down.waitlist.Add(1)
-	// add other conns
 	go down.startOthers()
 }
 
@@ -330,7 +326,7 @@ func (down *Download) saveProgress() {
 	prog := progress{Url: down.url, Filename: down.filename}
 	for _, conn := range down.connections {
 		connProg := map[string]int{
-			"offset":    conn.offset,
+			"offset":   conn.offset,
 			"length":   conn.length,
 			"received": conn.received,
 		}
@@ -358,19 +354,16 @@ func (down *Download) resume(progressFile string) bool {
 	go down.updateStatus()
 	for _, conn := range prog.Parts {
 		newConn := connection{
-			url: down.url,
-			headers: down.headers,
-			offset:  conn["offset"],
-			length: conn["length"],
+			offset:   conn["offset"],
+			length:   conn["length"],
 			received: conn["received"],
-			writer: down.writer,
+			writer:   down.writer,
 		}
-		resp := newConn.start()
+		resp := newConn.start(down.url, down.headers)
 		if resp == nil {
 			return false
 		}
 		down.connections = append(down.connections, &newConn)
-		down.written += conn["received"]
 		down.length += conn["length"]
 	}
 	// add other conns
