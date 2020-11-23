@@ -1,7 +1,8 @@
-// -{go run %f download.go http://localhost/Adobe/_Getintopc.com_Adobe_Illustrator_CC_2019_2018-10-29.zip}
 // -{go run %f download.go http://localhost/gparted-live-1.0.0-5-i686.iso}
 // -{go run %f download.go gparted-live-1.0.0-5-i686.iso.dman}
+// -{go run %f download.go http://localhost/Adobe/_Getintopc.com_Adobe_Illustrator_CC_2019_2018-10-29.zip}
 // -{go fmt %f}
+// -{go install}
 
 package main
 
@@ -49,7 +50,7 @@ func main() {
 		d := newDownload("", 32)
 		if resume {
 			fmt.Print("Resuming...")
-			resumed := d.fromProgress(os.Args[1]) // set url & filename as well
+			resumed := d.resume(os.Args[1]) // set url & filename as well
 			if !resumed {
 				fmt.Print("\rResume error")
 				return
@@ -57,13 +58,12 @@ func main() {
 		} else {
 			fmt.Print("Starting...")
 			d.url = os.Args[1]
-			d.startFirst() // set filename as well
+			d.start() // set filename as well
 		}
 
 		fmt.Printf("\rDownloading '%s' press Ctrl+C to stop.\n", d.filename)
 		d.emitStatus = make(chan status, 1)
 		go showProgress(d.emitStatus)
-		go d.startAdd()
 
 		interrupt := make(chan os.Signal, 1)
 		signal.Notify(interrupt, os.Interrupt)
