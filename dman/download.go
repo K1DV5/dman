@@ -4,7 +4,7 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
+	// "fmt"
 	"io"
 	"math"
 	"net/http"
@@ -13,15 +13,16 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"sort"
 )
 
 const (
-	LEN_CHECK       = 1 << 16              // 64KB, data interval to check if connection should stop
-	LEN_CACHE       = LEN_CHECK * 32         // in memory cache length for less io
-	MIN_CUT_ETA     = 5 * int(time.Second) // min ramaining time to split connection, 5 seconds
-	STAT_INTERVAL   = 500 * time.Millisecond
-	LONG_TIME       = 3 * 24 * int(time.Hour) // 3 days, arbitrarily large duration
-	WRITER_QUEUELEN = 10
+	LEN_CHECK     = 1 << 16              // 64KB, data interval to check if connection should stop
+	LEN_CACHE     = LEN_CHECK * 32       // in memory cache length for less io
+	MIN_CUT_ETA   = 5 * int(time.Second) // min ramaining time to split connection
+	STAT_INTERVAL = 500 * time.Millisecond
+	LONG_TIME     = 3 * 24 * int(time.Hour) // 3 days, arbitrarily large duration
+	PART_DIR_NAME = ".dman"
 )
 
 // error checker
@@ -31,13 +32,6 @@ func check(err error) {
 	}
 }
 
-type writeInfo struct {
-	offset int64
-	data   []byte
-	last   bool
-	wrote  chan bool
-}
-
 type status struct {
 	speed   float64
 	written int
@@ -45,10 +39,23 @@ type status struct {
 	conns   int
 }
 
+func getFilename(resp *http.Response) string {
+	var filename string
+	if disposition := resp.Header["Content-Disposition"]; len(disposition) > 0 {
+		filename = disposition[0]
+	} else {
+		url_parts := strings.Split(resp.Request.URL.Path, "/")
+		filename = url_parts[len(url_parts)-1]
+	}
+	return filename
+}
+
 type connection struct {
-	offset, length, received, written, eta int
-	stop                          chan bool
-	writer                        chan writeInfo
+	offset, length, received, eta int
+	stop                              chan bool
+	filename                          string // the name of the temp part file
+	file                              *os.File
+	wait                              *sync.WaitGroup
 }
 
 func (conn *connection) start(url string, headers [][]string) *http.Response {
@@ -59,7 +66,7 @@ func (conn *connection) start(url string, headers [][]string) *http.Response {
 	}
 	if conn.length > 0 {
 		// request partial content
-		req.Header.Add("Range", "bytes="+strconv.Itoa(conn.offset+conn.written)+"-"+strconv.Itoa(conn.offset+conn.length-1))
+		req.Header.Add("Range", "bytes="+strconv.Itoa(conn.offset+conn.received)+"-"+strconv.Itoa(conn.offset+conn.length-1))
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -67,8 +74,7 @@ func (conn *connection) start(url string, headers [][]string) *http.Response {
 	} else if conn.length > 0 && resp.StatusCode != 206 { // partial content
 		resp.Body.Close()
 		if resp.StatusCode == 200 {
-			fmt.Println("Connection not resumable")
-			return nil
+			panic("Connection not resumable")
 		} else {
 			panic(resp.Status)
 		}
@@ -78,12 +84,17 @@ func (conn *connection) start(url string, headers [][]string) *http.Response {
 			panic(resp.Status)
 		}
 	}
-	length, err := strconv.Atoi(resp.Header["Content-Length"][0])
-	conn.length = length
-	conn.received = conn.written
-	check(err)
+	conn.length = int(resp.ContentLength)
 	conn.stop = make(chan bool)
 	conn.eta = LONG_TIME
+	if conn.file == nil { // new
+		conn.filename = PART_DIR_NAME + "/" + getFilename(resp) + "." + strconv.Itoa(conn.offset)
+		file, err := os.Create(conn.filename)
+		check(err)
+		conn.file = file
+	} else { // resume
+		conn.filename = conn.file.Name()
+	}
 	go conn.download(resp.Body)
 	return resp
 }
@@ -94,22 +105,17 @@ func (conn *connection) download(body io.ReadCloser) {
 	cache := make([]byte, LEN_CACHE)
 	var cacheI int
 	flushI := LEN_CACHE - LEN_CHECK
-	wrote := make(chan bool)  // to indicate that data has been written to disk
-	for conn.length-conn.received > LEN_CHECK {
+	received := conn.received
+	for conn.length-received > LEN_CHECK {
 		select {
 		case <-conn.stop:
 			return
 		default:
 			body.Read(cache[cacheI : cacheI+LEN_CHECK])
-			conn.received += LEN_CHECK
+			received += LEN_CHECK
 			if cacheI == flushI { // flush cache
-				conn.writer <- writeInfo{
-					offset: int64(conn.offset + conn.received - LEN_CACHE),
-					data:   cache[:],
-					wrote: wrote,
-				}
-				<-wrote
-				conn.written = conn.received
+				conn.file.Write(cache[:])
+				conn.received = received
 				cache = make([]byte, LEN_CACHE)
 				cacheI = 0
 			} else {
@@ -121,21 +127,16 @@ func (conn *connection) download(body io.ReadCloser) {
 	case <-conn.stop:
 		return
 	default:
-		if conn.received < conn.length {
-			remaining := conn.length - conn.received
+		if received < conn.length {
+			remaining := conn.length - received
 			body.Read(cache[cacheI : cacheI+remaining])
-			conn.received += remaining
+			received += remaining
 			cacheI += remaining
 		}
-		conn.writer <- writeInfo{
-			offset: int64(conn.offset + conn.received - cacheI),
-			data:   cache[:cacheI],
-			last:   true,
-			wrote: wrote,
-		}
-		<-wrote
-		conn.written = conn.received
+		conn.file.Write(cache[:cacheI])
+		conn.received = received
 	}
+	conn.wait.Done()
 }
 
 type Download struct {
@@ -147,13 +148,11 @@ type Download struct {
 	stopStatus chan bool
 	// Dynamically set:
 	headers     [][]string
-	destination *os.File
 	filename    string
 	length      int
 	waitlist    sync.WaitGroup
 	connections []*connection
 	stopAdd     chan bool
-	writer      chan writeInfo
 }
 
 func (down *Download) getActiveConns() int {
@@ -183,7 +182,7 @@ func (down *Download) addConn() bool {
 	newConn := &connection{
 		offset: longest.offset + longest.length - newLen,
 		length: newLen,
-		writer: down.writer,
+		wait:   &down.waitlist,
 	}
 	resp := newConn.start(down.url, down.headers)
 	if resp == nil {
@@ -197,25 +196,9 @@ func (down *Download) addConn() bool {
 	return true
 }
 
-// This is the goroutine that will have access to the destination file
-func (down *Download) writeData() {
-	defer down.destination.Close()
-	for info := range down.writer {
-		down.destination.WriteAt(info.data, info.offset)
-		info.wrote <- true
-		if !info.last {
-			continue
-		}
-		// last chunk for this connection
-		down.waitlist.Done()
-		// try to start another one
-		down.addConn()
-	}
-}
-
 func (down *Download) updateStatus() {
 	var lastTime time.Time
-	connLastReceived := make([]int, down.maxConns * 3)
+	connLastReceived := make([]int, down.maxConns*3)
 	var written, lastWritten int
 	for {
 		select {
@@ -226,8 +209,7 @@ func (down *Download) updateStatus() {
 			lastTime = now
 			written, lastWritten = 0, 0
 			for i, conn := range down.connections {
-				receivedDelta := conn.received - connLastReceived[i]
-				speed := receivedDelta / duration
+				speed := (conn.received - connLastReceived[i]) / duration
 				if speed == 0 {
 					conn.eta = LONG_TIME
 				} else {
@@ -251,29 +233,35 @@ func (down *Download) updateStatus() {
 }
 
 func (down *Download) start() {
-	firstConn := connection{writer: down.writer}
+	os.Mkdir(PART_DIR_NAME, 666)
+	firstConn := connection{wait: &down.waitlist}
 	resp := firstConn.start(down.url, down.headers)
 	if resp == nil {
-		panic("error")
+		panic("Error")
 	}
 	// wait for firstConn
 	down.waitlist.Add(1)
 	// get filename
-	if disposition := resp.Header["Content-Disposition"]; len(disposition) > 0 {
-		down.filename = disposition[0]
-	} else {
-		url_parts := strings.Split(down.url, "/")
-		down.filename = url_parts[len(url_parts)-1]
-	}
+	down.filename = getFilename(resp)
 	down.length = firstConn.length
 	down.connections = append(down.connections, &firstConn)
-	// prepare destination file
-	file, err := os.Create(down.filename)
-	check(err)
-	down.destination = file
-	go down.writeData()
 	go down.updateStatus()
 	go down.startOthers()
+}
+
+func (down *Download) rebuild() {
+	// sort by offset
+	sort.Slice(down.connections, func(i, j int) bool {return down.connections[i].offset < down.connections[j].offset})
+	file := down.connections[0].file
+	file.Truncate(int64(down.connections[0].length))
+	for _, conn := range down.connections[1:] {
+		conn.file.Seek(0, 0)
+		io.CopyN(file, conn.file, int64(conn.length))
+		conn.file.Close()
+		os.Remove(conn.file.Name())
+	}
+	file.Close()
+	os.Rename(file.Name(), down.filename)
 }
 
 func (down *Download) startOthers() {
@@ -284,8 +272,7 @@ func (down *Download) startOthers() {
 		case <-down.stopAdd:
 			return
 		default:
-			ok := down.addConn()
-			if !ok {
+			if !down.addConn() { // fail
 				break
 			}
 		}
@@ -305,14 +292,19 @@ func (down *Download) wait(interrupt chan os.Signal) bool {
 		if len(down.connections) < down.maxConns {
 			down.stopAdd <- true
 		}
+		wg := sync.WaitGroup{}
 		for _, conn := range down.connections {
-			conn.stop <- true
+			wg.Add(1)
+			go func() {
+				conn.stop <- true
+				wg.Done()
+			}()
 		}
+		wg.Wait()
 	case <-over:
 		finished = true
 	}
 	close(down.stopAdd)
-	close(down.writer) // stop writeData
 	// stop eta calculation
 	down.stopStatus <- true
 	close(down.stopStatus)
@@ -347,17 +339,13 @@ func (down *Download) resume(progressFile string) bool {
 	json.NewDecoder(f).Decode(&prog)
 	down.url = prog.Url
 	down.filename = prog.Filename
-	file, err := os.OpenFile(down.filename, os.O_RDWR, 0644)
 	check(err)
-	down.destination = file
-	go down.writeData()
 	go down.updateStatus()
 	for _, conn := range prog.Parts {
 		newConn := connection{
 			offset:   conn["offset"],
 			length:   conn["length"],
 			received: conn["received"],
-			writer:   down.writer,
 		}
 		resp := newConn.start(down.url, down.headers)
 		if resp == nil {
@@ -381,7 +369,6 @@ func newDownload(url string, maxConns int) *Download {
 	down := Download{
 		url:        url,
 		maxConns:   maxConns,
-		writer:     make(chan writeInfo, WRITER_QUEUELEN),
 		stopStatus: make(chan bool),
 		stopAdd:    make(chan bool),
 	}
