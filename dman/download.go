@@ -9,11 +9,11 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"sort"
 )
 
 const (
@@ -51,11 +51,11 @@ func getFilename(resp *http.Response) string {
 }
 
 type connection struct {
-	offset, length, received, eta int
-	stop                              chan bool
-	filename                          string // the name of the temp part file
-	file                              *os.File
-	wait                              *sync.WaitGroup
+	offset, length, received, receivedTemp, eta int
+	stop                          chan bool
+	filename                      string // the name of the temp part file
+	file                          *os.File
+	done chan bool
 }
 
 func (conn *connection) start(url string, headers [][]string) *http.Response {
@@ -105,17 +105,17 @@ func (conn *connection) download(body io.ReadCloser) {
 	cache := make([]byte, LEN_CACHE)
 	var cacheI int
 	flushI := LEN_CACHE - LEN_CHECK
-	received := conn.received
-	for conn.length-received > LEN_CHECK {
+	conn.receivedTemp = conn.received
+	for conn.length-conn.receivedTemp > LEN_CHECK {
 		select {
 		case <-conn.stop:
 			return
 		default:
 			body.Read(cache[cacheI : cacheI+LEN_CHECK])
-			received += LEN_CHECK
+			conn.receivedTemp += LEN_CHECK
 			if cacheI == flushI { // flush cache
 				conn.file.Write(cache[:])
-				conn.received = received
+				conn.received = conn.receivedTemp
 				cache = make([]byte, LEN_CACHE)
 				cacheI = 0
 			} else {
@@ -127,16 +127,16 @@ func (conn *connection) download(body io.ReadCloser) {
 	case <-conn.stop:
 		return
 	default:
-		if received < conn.length {
-			remaining := conn.length - received
+		if conn.receivedTemp < conn.length {
+			remaining := conn.length - conn.receivedTemp
 			body.Read(cache[cacheI : cacheI+remaining])
-			received += remaining
+			conn.receivedTemp += remaining
 			cacheI += remaining
 		}
 		conn.file.Write(cache[:cacheI])
-		conn.received = received
+		conn.received = conn.receivedTemp
+		conn.done <- true
 	}
-	conn.wait.Done()
 }
 
 type Download struct {
@@ -151,6 +151,7 @@ type Download struct {
 	filename    string
 	length      int
 	waitlist    sync.WaitGroup
+	connDone chan bool
 	connections []*connection
 	stopAdd     chan bool
 }
@@ -159,20 +160,20 @@ func (down *Download) addConn() bool {
 	var longest *connection // connection having the longest undownloaded part
 	longestFree := 0
 	for _, conn := range down.connections {
-		free := conn.length - conn.received // not yet downloaded
+		free := conn.length - conn.receivedTemp // not yet downloaded
 		if free > longestFree {
 			longest = conn
 			longestFree = free
 		}
 	}
-	if longest == nil || longest.eta < MIN_CUT_ETA {
+	if longest == nil || longest.eta < MIN_CUT_ETA / int(time.Second) {
 		return false
 	}
 	newLen := int(math.Ceil(float64(longestFree / 2)))
 	newConn := &connection{
 		offset: longest.offset + longest.length - newLen,
 		length: newLen,
-		wait:   &down.waitlist,
+		done: down.connDone,
 	}
 	resp := newConn.start(down.url, down.headers)
 	if resp == nil {
@@ -188,7 +189,7 @@ func (down *Download) addConn() bool {
 
 func (down *Download) updateStatus() {
 	var lastTime time.Time
-	connLastReceived := make([]int, down.maxConns*3)
+	connLastReceived := make([]int, down.maxConns)
 	var written, lastWritten, conns int
 	for {
 		select {
@@ -199,15 +200,18 @@ func (down *Download) updateStatus() {
 			lastTime = now
 			written, lastWritten, conns = 0, 0, 0
 			for i, conn := range down.connections {
-				speed := (conn.received - connLastReceived[i]) / duration
+				if len(connLastReceived) == i {
+					connLastReceived = append(connLastReceived, 0)
+				}
+				speed := (conn.receivedTemp - connLastReceived[i]) * int(time.Second) / duration
 				if speed == 0 {
 					conn.eta = LONG_TIME
 				} else {
-					conn.eta = (conn.length - conn.received) / speed
+					conn.eta = (conn.length - conn.receivedTemp) / speed  // in seconds
 				}
 				lastWritten += connLastReceived[i]
-				connLastReceived[i] = conn.received
-				written += conn.received
+				connLastReceived[i] = conn.receivedTemp
+				written += conn.receivedTemp
 				if conn.received < conn.length {
 					conns++
 				}
@@ -227,7 +231,7 @@ func (down *Download) updateStatus() {
 
 func (down *Download) start() {
 	os.Mkdir(PART_DIR_NAME, 666)
-	firstConn := connection{wait: &down.waitlist}
+	firstConn := connection{done: down.connDone}
 	resp := firstConn.start(down.url, down.headers)
 	if resp == nil {
 		panic("Error")
@@ -242,9 +246,39 @@ func (down *Download) start() {
 	go down.startOthers()
 }
 
+func (down *Download) startOthers() {
+	// add connections
+	toAdd := down.maxConns
+	for _, conn := range down.connections {
+		if conn.received < conn.length {
+			toAdd--
+		}
+	}
+	for i := 0; i < toAdd; i++ {
+		select {
+		case <-down.stopAdd:
+			return
+		default:
+			if !down.addConn() { // fail
+				break
+			}
+		}
+	}
+	// retasking
+	for {
+		select {
+		case <-down.stopAdd:
+			return
+		case <-down.connDone:
+			down.addConn()
+			down.waitlist.Done()
+		}
+	}
+}
+
 func (down *Download) rebuild() {
 	// sort by offset
-	sort.Slice(down.connections, func(i, j int) bool {return down.connections[i].offset < down.connections[j].offset})
+	sort.Slice(down.connections, func(i, j int) bool { return down.connections[i].offset < down.connections[j].offset })
 	file := down.connections[0].file
 	file.Truncate(int64(down.connections[0].length))
 	for _, conn := range down.connections[1:] {
@@ -257,21 +291,6 @@ func (down *Download) rebuild() {
 	os.Rename(file.Name(), down.filename)
 }
 
-func (down *Download) startOthers() {
-	// add connections
-	toAdd := down.maxConns - len(down.connections)
-	for i := 0; i < toAdd; i++ {
-		select {
-		case <-down.stopAdd:
-			return
-		default:
-			if !down.addConn() { // fail
-				break
-			}
-		}
-	}
-}
-
 func (down *Download) wait(interrupt chan os.Signal) bool {
 	over := make(chan bool)
 	go func() {
@@ -282,9 +301,7 @@ func (down *Download) wait(interrupt chan os.Signal) bool {
 	select {
 	case <-interrupt:
 		// abort/pause
-		if len(down.connections) < down.maxConns {
-			down.stopAdd <- true
-		}
+		down.stopAdd <- true
 		wg := sync.WaitGroup{}
 		for _, conn := range down.connections {
 			wg.Add(1)
@@ -339,11 +356,13 @@ func (down *Download) resume(progressFile string) bool {
 			offset:   conn["offset"],
 			length:   conn["length"],
 			received: conn["received"],
+			done: down.connDone,
 		}
 		resp := newConn.start(down.url, down.headers)
 		if resp == nil {
 			return false
 		}
+		down.waitlist.Add(1)
 		down.connections = append(down.connections, &newConn)
 		down.length += conn["length"]
 	}
@@ -364,6 +383,7 @@ func newDownload(url string, maxConns int) *Download {
 		maxConns:   maxConns,
 		stopStatus: make(chan bool),
 		stopAdd:    make(chan bool),
+		connDone:   make(chan bool),
 	}
 	return &down
 }
