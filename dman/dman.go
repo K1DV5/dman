@@ -1,4 +1,5 @@
 // -{go run %f download.go http://localhost/gparted-live-1.0.0-5-i686.iso}
+// -{go run %f download.go http://localhost/Getintopc.comWindows_7_Ultimate_SP1_January_2017.iso}
 // -{go run %f download.go gparted-live-1.0.0-5-i686.iso.dman}
 // -{go run %f download.go http://localhost/Adobe/_Getintopc.com_Adobe_Illustrator_CC_2019_2018-10-29.zip}
 // -{go fmt %f}
@@ -18,12 +19,20 @@ const (
 	KB = 1 << (10 * (iota + 1))
 	MB
 	GB
+	SPEED_HIST_LEN = 10
 )
 
 func showProgress(statusChan chan status) {
 	var speedUnit string
+	var speedHist [SPEED_HIST_LEN]float64
 	for stat := range statusChan {
-		speed := stat.speed * float64(time.Second)
+		var speed float64
+		for i, sp := range speedHist[1:] {
+			speedHist[i] = sp
+			speed += sp
+		}
+		speedHist[len(speedHist) - 1] = stat.speed
+		speed = (speed + stat.speed) / float64(len(speedHist)) * float64(time.Second)
 		switch {
 		case speed > GB:
 			speed /= GB
@@ -70,6 +79,8 @@ func main() {
 		finished := d.wait(interrupt)
 
 		if finished {
+			fmt.Print("\rRebuilding...", strings.Repeat(" ", 70))
+			d.rebuild()
 			fmt.Println("\rFinished", strings.Repeat(" ", 70))
 		} else {
 			fmt.Println("\rPaused", strings.Repeat(" ", 70))
