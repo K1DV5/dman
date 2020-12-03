@@ -1,5 +1,5 @@
-// -{go run %f download.go http://localhost/gparted-live-1.0.0-5-i686.iso}
 // -{go run %f download.go http://localhost/Getintopc.comWindows_7_Ultimate_SP1_January_2017.iso}
+// -{go run %f download.go http://localhost/gparted-live-1.0.0-5-i686.iso}
 // -{go run %f download.go gparted-live-1.0.0-5-i686.iso.dman}
 // -{go run %f download.go http://localhost/Adobe/_Getintopc.com_Adobe_Illustrator_CC_2019_2018-10-29.zip}
 // -{go fmt %f}

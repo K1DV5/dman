@@ -155,16 +155,6 @@ type Download struct {
 	stopAdd     chan bool
 }
 
-func (down *Download) getActiveConns() int {
-	conns := 0
-	for _, conn := range down.connections {
-		if conn.received < conn.length {
-			conns++
-		}
-	}
-	return conns
-}
-
 func (down *Download) addConn() bool {
 	var longest *connection // connection having the longest undownloaded part
 	longestFree := 0
@@ -199,7 +189,7 @@ func (down *Download) addConn() bool {
 func (down *Download) updateStatus() {
 	var lastTime time.Time
 	connLastReceived := make([]int, down.maxConns*3)
-	var written, lastWritten int
+	var written, lastWritten, conns int
 	for {
 		select {
 		case <-down.stopStatus:
@@ -207,7 +197,7 @@ func (down *Download) updateStatus() {
 		case now := <-time.After(STAT_INTERVAL):
 			duration := int(now.Sub(lastTime))
 			lastTime = now
-			written, lastWritten = 0, 0
+			written, lastWritten, conns = 0, 0, 0
 			for i, conn := range down.connections {
 				speed := (conn.received - connLastReceived[i]) / duration
 				if speed == 0 {
@@ -218,6 +208,9 @@ func (down *Download) updateStatus() {
 				lastWritten += connLastReceived[i]
 				connLastReceived[i] = conn.received
 				written += conn.received
+				if conn.received < conn.length {
+					conns++
+				}
 			}
 			writtenDelta := written - lastWritten
 			if down.emitStatus != nil {
@@ -225,7 +218,7 @@ func (down *Download) updateStatus() {
 					speed:   float64(writtenDelta) / float64(duration),
 					percent: float64(written) / float64(down.length) * 100,
 					written: written,
-					conns:   down.getActiveConns(),
+					conns:   conns,
 				}
 			}
 		}
@@ -295,10 +288,10 @@ func (down *Download) wait(interrupt chan os.Signal) bool {
 		wg := sync.WaitGroup{}
 		for _, conn := range down.connections {
 			wg.Add(1)
-			go func() {
+			go func(conn *connection) {
 				conn.stop <- true
 				wg.Done()
-			}()
+			}(conn)
 		}
 		wg.Wait()
 	case <-over:
