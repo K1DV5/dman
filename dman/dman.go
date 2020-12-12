@@ -1,7 +1,6 @@
+// -{go run %f download.go extension.go setup.go http://localhost/gparted-live-1.0.0-5-i686.iso}
+// -{go run %f download.go extension.go setup.go ./.dman/gparted-live-1.0.0-5-i686.iso.dman}
 // -{go install}
-// -{go run %f download.go --parent-window=4}
-// -{go run %f download.go --resume=./.dman/gparted-live-1.0.0-5-i686.iso.dman}
-// -{go run %f download.go --url=http://localhost/gparted-live-1.0.0-5-i686.iso}
 // -{go fmt %f}
 
 package main

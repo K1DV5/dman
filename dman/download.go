@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"path/filepath"
 )
 
 const (
@@ -342,6 +343,7 @@ func (down *Download) rebuild() {
 	down.stopStatus <- true
 	file.Close()
 	os.Rename(file.Name(), down.filename)
+	os.Remove(filepath.Dir(file.Name()))  // only if empty
 }
 
 func (down *Download) saveProgress() error {
