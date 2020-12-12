@@ -18,7 +18,6 @@ import (
 
 const (
 	LEN_CHECK     = 1 << 16              // 64KB, data interval to check if connection should stop
-	LEN_CACHE     = LEN_CHECK * 32       // in memory cache length for less io
 	MIN_CUT_ETA   = 5 * int(time.Second) // min ramaining time to split connection
 	STAT_INTERVAL = 500 * time.Millisecond
 	LONG_TIME     = 3 * 24 * int(time.Hour) // 3 days, arbitrarily large duration
@@ -27,17 +26,21 @@ const (
 )
 
 type status struct {
+	id int
 	rebuilding bool
-	speed   float64
-	written int
-	percent float64
-	conns   int
+	speed      float64
+	written    int
+	percent    float64
+	conns      int
 }
 
 func getFilename(resp *http.Response) string {
 	var filename string
-	if disposition := resp.Header["Content-Disposition"]; len(disposition) > 0 {
-		filename = disposition[0]
+	disposition := resp.Header["Content-Disposition"]
+	prefix := "filename="
+	if len(disposition) > 0 && strings.Contains(disposition[0], prefix) {
+		start := strings.Index(disposition[0], prefix) + len(prefix)
+		filename = disposition[0][start:]
 	} else {
 		url_parts := strings.Split(resp.Request.URL.Path, "/")
 		filename = url_parts[len(url_parts)-1]
@@ -46,11 +49,11 @@ func getFilename(resp *http.Response) string {
 }
 
 type connection struct {
-	offset, length, received, receivedTemp, eta int
-	stop                                        chan bool
-	file                                        *os.File
-	done                                        chan bool
-	lock 										sync.Mutex
+	offset, length, received, eta int
+	stop                          chan bool
+	file                          *os.File
+	done                          chan bool
+	lock                          sync.Mutex
 }
 
 func (conn *connection) start(url string, headers [][]string) (*http.Response, error) {
@@ -100,10 +103,7 @@ func (conn *connection) start(url string, headers [][]string) (*http.Response, e
 func (conn *connection) download(body io.ReadCloser) {
 	// also cache chunks for faster writes
 	defer body.Close()
-	cache := make([]byte, LEN_CACHE)
-	var cacheI int
-	flushI := LEN_CACHE - LEN_CHECK
-	conn.receivedTemp = conn.received
+	buf := make([]byte, LEN_CHECK)
 	for {
 		conn.lock.Lock()
 		select {
@@ -111,29 +111,23 @@ func (conn *connection) download(body io.ReadCloser) {
 			return
 		default:
 		}
-		body.Read(cache[cacheI : cacheI+LEN_CHECK])
-		conn.receivedTemp += LEN_CHECK
-		if cacheI == flushI { // flush cache
-			conn.file.Write(cache[:])
-			conn.received = conn.receivedTemp
-			cache = make([]byte, LEN_CACHE)
-			cacheI = 0
-		} else {
-			cacheI += LEN_CHECK
-		}
-		if conn.length-conn.receivedTemp <= LEN_CHECK { // final
-			if conn.receivedTemp < conn.length {
-				remaining := conn.length - conn.receivedTemp
-				body.Read(cache[cacheI : cacheI+remaining])
-				conn.receivedTemp += remaining
-				cacheI += remaining
+		if conn.length-conn.received < LEN_CHECK { // final
+			remaining := conn.length - conn.received
+			if remaining > 0 {
+				body.Read(buf[:remaining])
+				conn.file.Write(buf[:remaining])
+				conn.received += remaining
+			} else if remaining < 0 {  // received too much
+				conn.file.Truncate(int64(conn.length))
+				conn.received = conn.length
 			}
-			conn.file.Write(cache[:cacheI])
-			conn.received = conn.receivedTemp
 			conn.lock.Unlock()
 			conn.done <- true
 			break
 		}
+		body.Read(buf)
+		conn.file.Write(buf)
+		conn.received += LEN_CHECK
 		conn.lock.Unlock()
 	}
 }
@@ -159,11 +153,20 @@ func (down *Download) addConn() error {
 	var longest *connection // connection having the longest undownloaded part
 	longestFree := 0
 	for _, conn := range down.connections {
-		free := conn.length - conn.receivedTemp // not yet downloaded
+		conn.lock.Lock()
+		free := conn.length - conn.received // not yet downloaded
 		if free > longestFree {
+			if longest != nil {  // bigger one found
+				longest.lock.Unlock()
+			}
 			longest = conn
 			longestFree = free
+		} else {
+			conn.lock.Unlock()
 		}
+	}
+	if longest != nil {
+		defer longest.lock.Unlock()
 	}
 	if longest == nil || longest.eta < MIN_CUT_ETA/int(time.Second) {
 		return fmt.Errorf("No connection to split found")
@@ -180,9 +183,7 @@ func (down *Download) addConn() error {
 	}
 	down.waitlist.Add(1)
 	// shorten previous connection
-	longest.lock.Lock()
 	longest.length -= newLen
-	longest.lock.Unlock()
 	// add this conn to the collection
 	down.connections = append(down.connections, newConn)
 	return nil
@@ -200,11 +201,11 @@ func (down *Download) updateStatus() {
 		case now := <-time.After(STAT_INTERVAL):
 			duration := int(now.Sub(lastTime))
 			lastTime = now
-			if rebuilding {  // finished downloading, rebuilding
+			if rebuilding { // finished downloading, rebuilding
 				stat, _ := down.connections[0].file.Stat()
 				down.emitStatus <- status{
 					rebuilding: true,
-					percent: float64(stat.Size()) / float64(down.length) * 100,
+					percent:    float64(stat.Size()) / float64(down.length) * 100,
 				}
 				continue
 			}
@@ -213,15 +214,15 @@ func (down *Download) updateStatus() {
 				if len(connLastReceived) == i {
 					connLastReceived = append(connLastReceived, 0)
 				}
-				speed := (conn.receivedTemp - connLastReceived[i]) * int(time.Second) / duration
+				speed := (conn.received - connLastReceived[i]) * int(time.Second) / duration
 				if speed == 0 {
 					conn.eta = LONG_TIME
 				} else {
-					conn.eta = (conn.length - conn.receivedTemp) / speed // in seconds
+					conn.eta = (conn.length - conn.received) / speed // in seconds
 				}
 				lastWritten += connLastReceived[i]
-				connLastReceived[i] = conn.receivedTemp
-				written += conn.receivedTemp
+				connLastReceived[i] = conn.received
+				written += conn.received
 				if conn.received < conn.length {
 					conns++
 				}
@@ -264,9 +265,11 @@ func (down *Download) startOthers() {
 	// add connections
 	toAdd := down.maxConns
 	for _, conn := range down.connections {
+		conn.lock.Lock()
 		if conn.received < conn.length {
 			toAdd--
 		}
+		conn.lock.Unlock()
 	}
 	for i := 0; i < toAdd; i++ {
 		select {
@@ -317,6 +320,7 @@ func (down *Download) wait(interrupt chan os.Signal) bool {
 		}
 		wg.Wait()
 	case <-over:
+		down.stopAdd <- true
 		finished = true
 	}
 	close(down.stopAdd)
@@ -329,10 +333,9 @@ func (down *Download) rebuild() {
 		return down.connections[i].offset < down.connections[j].offset
 	})
 	file := down.connections[0].file
-	file.Truncate(int64(down.connections[0].length))
 	for _, conn := range down.connections[1:] {
 		conn.file.Seek(0, 0)
-		io.CopyN(file, conn.file, int64(conn.length))
+		io.Copy(file, conn.file)
 		conn.file.Close()
 		os.Remove(conn.file.Name())
 	}
@@ -390,8 +393,6 @@ func (down *Download) resume(progressFile string) error {
 				return err
 			}
 			down.waitlist.Add(1)
-		} else { // for status
-			newConn.receivedTemp = newConn.received
 		}
 		down.connections = append(down.connections, &newConn)
 		down.length += newConn.length
@@ -411,6 +412,7 @@ func newDownload(url string, maxConns int) *Download {
 	down := Download{
 		url:        url,
 		maxConns:   maxConns,
+		emitStatus: make(chan status),
 		stopStatus: make(chan bool),
 		stopAdd:    make(chan bool),
 		connDone:   make(chan bool),
