@@ -1,2 +1,66 @@
-<input type="file">
-<script src="popup.js"></script>
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="X-UA-Compatible" content="ie=edge">
+        <link rel="stylesheet" href="popup.css">
+    </head>
+    <body>
+        <div class="tabs">
+            <span class="tab" data-tab="progress">In progress</span>
+            <span class="tab" data-tab="completed">Completed</span>
+            <span class="tab" data-tab="options">Options</span>
+        </div>
+        <div id="progress">
+            <nav>
+                <div class="toolbar-prog">
+                    <button id="add">Add</button>
+                    <button id="stop">Stop</button>
+                    <button id="delete">Delete</button>
+                </div>
+                <div class="input-url">
+                    <input type="text" id="url">
+                    <button id="add-url">Go</button>
+                    <button id="cancel-url">&times;</button>
+                </div>
+            </nav>
+            <div class="list">
+                <div class="item">
+                    <div>Foo bar.zip</div>
+                    <div class="progress" style="width: 50%"></div>
+                    <div class="info">
+                        <span>50%</span>
+                        <span>8MB/s</span>
+                        <span>16 connections</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="completed">
+            <nav class="toolbar-comp">
+                <button id="folder">Open folder</button>
+                <button id="delete-finished">Delete</button>
+            </nav>
+            <table border="1">
+                <tr>
+                    <th id="fname">File name</th>
+                    <th>Size</th>
+                    <th>Date</th>
+                </tr>
+                <tr>
+                    <td>Foo bar.zip</td>
+                    <td>5.2MB</td>
+                    <td>Dec 2 2020</td>
+                </tr>
+            </table>
+        </div>
+
+        <div id="options">
+            Options
+        </div>
+
+        <script src="popup.js"></script>
+    </body>
+</html>

@@ -1,0 +1,66 @@
+body {
+    width: 26em;
+}
+
+input {
+    border: solid 1px grey;
+    outline-color: grey;
+}
+
+button {
+    background: transparent;
+    border: solid 1px grey;
+    outline-color: grey;
+}
+
+.input-url {
+    display: none;
+}
+
+.toolbar-comp, .toolbar-prog {
+    display: flex;
+    margin: 0 0 .5em 0;
+}
+
+.input-url {
+    margin: 0 0 .5em 0;
+}
+
+.info {
+    display: flex;
+    justify-content: space-around;
+}
+
+.item {
+    border: solid 1px grey;
+    padding: .3em
+}
+
+.progress {
+    height: .3em;
+    background: cyan;
+    margin: .5em 0 .5em 0;
+}
+
+.tabs {
+    display: flex;
+    justify-content: space-around;
+    margin: 0 0 1em 0;
+}
+
+.tab {
+    padding: .5em;
+    cursor: pointer;
+}
+
+.tab-current {
+    border-bottom: solid .2em blue;
+}
+
+table {
+    border-collapse: collapse;
+}
+
+#fname {
+    width: 16em;
+}
