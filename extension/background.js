@@ -1,11 +1,29 @@
-var port = chrome.runtime.connectNative('com.k1dv5.dman');
+uiInfos = {
+    1: {
+        filename: 'foo',
+        size: '23.1MB',
+        speed: '8MB/s',
+        percent: '35%',
+        conns: 'x13',
+        eta: '5m23s',
+        date: '12/16/2020'
+    },
+    2: {
+        completed: true,
+        filename: 'foo',
+        size: '23.1MB',
+        date: '12/16/2020'
+    }
+}
 
-port.onMessage.addListener(function(msg) {
-    console.log("Received", msg);
-});
+// var port = chrome.runtime.connectNative('com.k1dv5.dman');
 
-port.onDisconnect.addListener(function() {
-    console.log("Disconnected");
-});
+// port.onMessage.addListener(function(msg) {
+//     console.log("Received", msg);
+// });
 
-port.postMessage({ text: "Hello, my_application" });
+// port.onDisconnect.addListener(function() {
+//     console.log("Disconnected");
+// });
+
+// port.postMessage({ text: "Hello, my_application" });

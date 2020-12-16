@@ -1,5 +1,13 @@
-body {
-    width: 26em;
+#head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: .5em;
+}
+
+#head > div {
+    font-size: 120%;
+    font-weight: bold;
 }
 
 input {
@@ -13,54 +21,71 @@ button {
     outline-color: grey;
 }
 
-.input-url {
+button:active {
+    background: #8888;
+}
+
+#input-url {
     display: none;
-}
-
-.toolbar-comp, .toolbar-prog {
-    display: flex;
-    margin: 0 0 .5em 0;
-}
-
-.input-url {
-    margin: 0 0 .5em 0;
 }
 
 .info {
     display: flex;
-    justify-content: space-around;
+    justify-content: space-between;
+    font-size: 80%;
+    margin-right: 5em;
 }
 
-.item {
+#list {
+    margin-top: .5em;
     border: solid 1px grey;
-    padding: .3em
-}
-
-.progress {
-    height: .3em;
-    background: cyan;
-    margin: .5em 0 .5em 0;
-}
-
-.tabs {
-    display: flex;
-    justify-content: space-around;
-    margin: 0 0 1em 0;
-}
-
-.tab {
-    padding: .5em;
-    cursor: pointer;
-}
-
-.tab-current {
-    border-bottom: solid .2em blue;
+    max-height: 85vh;
+    overflow-y: auto;
 }
 
 table {
     border-collapse: collapse;
+    width: 36em;
 }
 
-#fname {
-    width: 16em;
+th, td {
+    padding: .3em;
+    max-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+tr[tabindex="0"] {
+    cursor: pointer
+}
+
+tr:hover {
+    background: #09F3;
+}
+
+tr:focus {
+    background: #09F8;
+    outline: transparent
+}
+
+tr:focus td {
+    white-space: initial;
+    overflow-wrap: anywhere;
+}
+
+.progress {
+    height: .1em;
+    background: cyan;
+}
+
+#tbl-head {
+    background: #8888;
+}
+
+#tbl-head #fname {
+    width: 22em;
+}
+
+#settings {
+    display: none;
 }

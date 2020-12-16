@@ -7,57 +7,57 @@
         <link rel="stylesheet" href="popup.css">
     </head>
     <body>
-        <div class="tabs">
-            <span class="tab" data-tab="progress">In progress</span>
-            <span class="tab" data-tab="completed">Completed</span>
-            <span class="tab" data-tab="options">Options</span>
+        <div id="head">
+            <div>Downloads</div>
+            <button id="settings-butt">Settings</button>
         </div>
-        <div id="progress">
-            <nav>
-                <div class="toolbar-prog">
-                    <button id="add">Add</button>
-                    <button id="stop">Stop</button>
-                    <button id="delete">Delete</button>
-                </div>
-                <div class="input-url">
-                    <input type="text" id="url">
-                    <button id="add-url">Go</button>
-                    <button id="cancel-url">&times;</button>
-                </div>
-            </nav>
-            <div class="list">
-                <div class="item">
-                    <div>Foo bar.zip</div>
-                    <div class="progress" style="width: 50%"></div>
-                    <div class="info">
-                        <span>50%</span>
-                        <span>8MB/s</span>
-                        <span>16 connections</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div id="completed">
-            <nav class="toolbar-comp">
-                <button id="folder">Open folder</button>
+        <nav>
+            <div id="toolbar">
+                <button id="add">Add</button>
+                <button id="stop">Stop</button>
+                <button id="open">Open</button>
+                <button id="folder">Folder</button>
                 <button id="delete-finished">Delete</button>
-            </nav>
+            </div>
+            <div id="input-url">
+                <input type="text" id="url">
+                <button id="add-url">Go</button>
+                <button id="cancel-url">&times;</button>
+            </div>
+        </nav>
+        <div id="list">
             <table border="1">
-                <tr>
+                <tr id="tbl-head">
                     <th id="fname">File name</th>
-                    <th>Size</th>
-                    <th>Date</th>
+                    <th id="size">Size</th>
+                    <th id="date">Date</th>
                 </tr>
-                <tr>
-                    <td>Foo bar.zip</td>
-                    <td>5.2MB</td>
-                    <td>Dec 2 2020</td>
-                </tr>
+                <!-- <tr tabindex="0"> -->
+                <!--     <td> -->
+                <!--         <div>Foo bar dhdjbchjbchjsdbchjsbchjcbhdsjcbhdjscbhjcbhsjdbchsd.zip</div> -->
+                <!--         <div class="progress" style="width: 50%"></div> -->
+                <!--         <div class="info"> -->
+                <!--             <span>50%</span> -->
+                <!--             <span>8MB/s</span> -->
+                <!--             <span>x16 connections</span> -->
+                <!--             <span>23m4s</span> -->
+                <!--         </div> -->
+                <!--     </td> -->
+                <!--     <td>5.2MB</td> -->
+                <!--     <td>12/16/2020</td> -->
+                <!-- </tr> -->
+                <!-- <tr tabindex="0"> -->
+                <!--     <td>Foo bar foj.zip</td> -->
+                <!--     <td>1014.27MB</td> -->
+                <!--     <td>12/16/2020</td> -->
+                <!-- </tr> -->
             </table>
         </div>
 
-        <div id="options">
+        <div id="settings">
+            <div>
+                <button>Back</button>
+            </div>
             Options
         </div>
 
