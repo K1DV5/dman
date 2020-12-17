@@ -46,6 +46,7 @@ button:active {
 table {
     border-collapse: collapse;
     width: 36em;
+    caption-side: bottom;
 }
 
 th, td {
