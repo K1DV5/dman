@@ -1,4 +1,4 @@
-let bgPage = chrome.extension.getBackgroundPage()
+let bg = chrome.extension.getBackgroundPage()
 let lastFocusId
 
 const urlInput = document.getElementById('url')
@@ -21,7 +21,9 @@ function addRow(data, id) {
     let fnamePart = document.createElement('td')
     row.appendChild(fnamePart)
     row.id = id
-    if (data.state == 0 || data.state == 1) {
+    if (data.state == bg.S_COMPLETED) { // complete
+        fnamePart.innerText = data.filename
+    } else {
         let fname = document.createElement('div')
         fnamePart.appendChild(fname)
         fname.innerText = data.filename
@@ -32,24 +34,34 @@ function addRow(data, id) {
         let info = document.createElement('div')
         fnamePart.appendChild(info)
         info.className = 'info'
-        if (data.state == 0) {
+        if (data.state == bg.S_REBUILDING) {  // rebuilding
+            progress.style.background = 'cyan'
+            info.innerText = 'Rebuilding'
+        } else {
             let percent = document.createElement('span')
             info.appendChild(percent)
-            percent.innerText = data.percent + '%'
             let speed = document.createElement('span')
             info.appendChild(speed)
-            speed.innerText = data.speed
             let conns = document.createElement('span')
             info.appendChild(conns)
-            conns.innerText = 'x' + data.connections
             let eta = document.createElement('span')
             info.appendChild(eta)
-            eta.innerText = data.eta
-        } else {
-            info.innerText = 'Rebuilding'
+            if (data.state == bg.S_DOWNLOADING) {  // downloading
+                progress.style.background = 'cyan'
+                percent.innerText = data.percent + '%'
+                speed.innerText = data.speed
+                conns.innerText = 'x' + data.connections
+                eta.innerText = data.eta
+            } else if (data.state == bg.S_PAUSED) { // paused
+                progress.style.background = 'orange'
+                percent.innerText = data.percent + '%'
+                speed.innerText = 'Paused'
+            } else {  // 2, failed
+                progress.style.background = 'red'
+                percent.innerText = data.percent + '%'
+                speed.innerText = 'Failed'
+            }
         }
-    } else {
-        fnamePart.innerText = data.filename
     }
 
     let sizePart = document.createElement('td')
@@ -63,7 +75,7 @@ function addRow(data, id) {
     row.addEventListener('focus', () => lastFocusId = id)
 }
 
-for (let [id, info] of Object.entries(bgPage.uiInfos).sort((a, b) => a[1].state < b[1].state ? 1 : -1)) {
+for (let [id, info] of Object.entries(bg.downloads).sort((a, b) => a[1].state < b[1].state ? 1 : -1)) {
     addRow(info, id)
 }
 if (list.rows.length == 1) {
@@ -74,9 +86,9 @@ if (list.rows.length == 1) {
 
 function update(ids) {
     for (let id of ids) {
-        let info = bgPage.uiInfos[id]
+        let info = bg.downloads[id]
         let item = document.getElementById(id)
-        if (info.state == 0) {  // downloading
+        if (info.state == bg.S_DOWNLOADING) {  // downloading
             let [_, progress, infoElm] = item.firstElementChild.children
             progress.style.width = info.percent + '%'
             let [percent, speed, conns, eta] = infoElm.children
@@ -84,11 +96,27 @@ function update(ids) {
             speed.innerText = info.speed
             conns.innerText = 'x' + info.connections
             eta.innerText = info.eta
-        } else if (info.state == 1) {  // rebuilding
+        } else if (info.state == bg.S_PAUSED) {  // paused
+            let [_, progress, infoElm] = item.firstElementChild.children
+            progress.style.background = 'yellow'
+            let [percent, speed, conns, eta] = infoElm.children
+            percent.innerText = info.percent + '%'
+            speed.innerText = 'Paused'
+            conns.innerText = ''
+            eta.innerText = ''
+        } else if (info.state == bg.S_FAILED) {  // failed
+            let [_, progress, infoElm] = item.firstElementChild.children
+            progress.style.background = 'red'
+            let [percent, speed, conns, eta] = infoElm.children
+            percent.innerText = info.percent + '%'
+            speed.innerText = 'Failed'
+            conns.innerText = info.error
+            eta.innerText = ''
+        } else if (info.state == bg.S_REBUILDING) {  // rebuilding
             let [_, progress, infoElm] = item.firstElementChild.children
             progress.style.width = info.percent + '%'
             infoElm.innerHTML = 'Rebuilding'
-        } else {  // completed
+        } else {  // 4, completed
             item.firstElementChild.innerHTML = info.filename
         }
     }
@@ -96,7 +124,7 @@ function update(ids) {
 
 function commitUrl() {
     // list.deleteCaption()
-    bgPage.addItem(urlInput.value)
+    bg.addItem(urlInput.value)
     resetUrl()
 }
 
@@ -114,7 +142,7 @@ function remove(event) {
     event.preventDefault()
     let item = document.getElementById(lastFocusId)
     if (item == null) return
-    delete bgPage.uiInfos[lastFocusId]
+    delete bg.downloads[lastFocusId]
     item.remove()
     lastFocusId = undefined
 }

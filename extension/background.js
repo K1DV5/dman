@@ -1,58 +1,108 @@
-uiInfos = {
-    1: {
-        state: 0,  // downloading
-        url: 'http://foo',
-        filename: 'foo',
-        size: '23.1MB',
-        speed: '8MB/s',
-        percent: 35,
-        connections: 13,
-        eta: '5m23s',
-        date: '12/16/2020'
-    },
-    2: {
-        state: 1,
-        url: 'http://foo',
-        filename: 'foo',
-        percent: 70,
-        size: '23.1MB',
-        date: '12/16/2020'
-    },
-    3: {
-        state: 2,  // completed
-        url: 'http://foo',
-        filename: 'foo',
-        size: '23.1MB',
-        date: '12/16/2020'
-    }
+// constants, for easy recognition
+S_DOWNLOADING = 0,
+S_PAUSED = 1,
+S_FAILED = 2,
+S_REBUILDING = 3,
+S_COMPLETED = 4
+// native port
+let native = chrome.runtime.connectNative('com.k1dv5.dman');
+
+downloads = {
+    // 1: {
+    //     state: S_DOWNLOADING,  // downloading
+    //     url: 'http://foo',
+    //     filename: 'foo',
+    //     size: '23.1MB',
+    //     speed: '8MB/s',
+    //     percent: 35,
+    //     connections: 13,
+    //     eta: '5m23s',
+    //     date: '12/16/2020'
+    // },
+    // 2: {
+    //     state: S_PAUSED,  // paused
+    //     url: 'http://foo',
+    //     filename: 'foo',
+    //     percent: 70,
+    //     size: '23.1MB',
+    //     date: '12/16/2020'
+    // },
+    // 3: {
+    //     state: S_FAILED,  // failed
+    //     url: 'http://foo',
+    //     filename: 'foo',
+    //     percent: 70,
+    //     size: '23.1MB',
+    //     date: '12/16/2020'
+    // },
+    // 4: {
+    //     state: S_REBUILDING,  // rebuilding
+    //     url: 'http://foo',
+    //     filename: 'foo',
+    //     percent: 70,
+    //     size: '23.1MB',
+    //     date: '12/16/2020'
+    // },
+    // 5: {
+    //     state: S_COMPLETED,  // completed
+    //     url: 'http://foo',
+    //     filename: 'foo',
+    //     size: '23.1MB',
+    //     date: '12/16/2020'
+    // },
 }
 
 function addItem(url) {
-    // send to native, then
-    let id = Number((Date.now()).toString().slice(2, -2))
-    let info = {
-        url,
-        filename: 'foo',
-        size: '23.1MB',
-        speed: '8MB/s',
-        percent: '35%',
-        conns: 'x13',
-        eta: '5m23s',
-        date: '12/16/2020'
-    }
-    uiInfos[id] = info
-    // ? because the popup may be closed now
-    chrome.extension.getViews()[1]?.addRow(info, id)  // popup.addRow
+    // send to native
+    native.postMessage({
+        type: 'new',
+        id: Number((Date.now()).toString().slice(2, -2)),
+        url
+    })
 }
 
-// var port = chrome.runtime.connectNative('com.k1dv5.dman');
+function changeState(id, to) {
+    let info = downloads[id]
+    if (info.state == S_REBUILDING) return  // rebuilding
+    if (info.state == S_DOWNLOADING) {  // downloading
+        if (to != S_PAUSED) return
+        // pause
+        native.postMessage({type: 'stop', id})
+    } else if (to == null) {  // delete
+        native.postMessage({type: 'delete', filename: info.filename})
+    } else {  // paused / failed
+        if (to != S_DOWNLOADING) return
+        // resume
+        native.postMessage({type: 'resume', filename: info.filename})
+    }
+}
 
-// port.onMessage.addListener(function(msg) {
-//     console.log("Received", msg);
+native.onMessage.addListener(message => {
+    if (message.type == 'info') {
+        let ids = []
+        for (let [id, info] of message.downloads) {
+            ids.push(id)
+            downloads[id] = info
+        }
+        chrome.extension.getViews({type: 'popup'})[0]?.update(ids)  // popup.addRow
+    } else {
+        let id = download.id
+        delete download.id
+        let type = download.type
+        delete download.type
+        downloads[id] = download
+        if (type == 'new') {
+            download.date = new Date().toLocaleDateString()
+            downloads[id] = download
+            // ? because the popup may be closed now
+            chrome.extension.getViews({type: 'popup'})[0]?.addRow(download, id)  // popup.addRow
+        } else {
+            chrome.extension.getViews({type: 'popup'})[0]?.update(ids)  // popup.addRow
+        }
+        chrome.storage.local.set({downloads})
+    }
+});
+
+// native.onDisconnect.addListener(() => {
+//     chrome.storage.local.set({downloads})
 // });
-
-// port.onDisconnect.addListener(function() {
-//     console.log("Disconnected");
-// });
-
-// port.postMessage({ text: "Hello, my_application" });
