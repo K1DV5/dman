@@ -35,6 +35,7 @@ type status struct {
 	written    int
 	percent    float64
 	conns      int
+	eta string
 }
 
 func getFilename(resp *http.Response) string {
@@ -55,7 +56,7 @@ type connection struct {
 	offset, length, received, eta int
 	stop                          chan bool
 	file                          *os.File
-	done                          chan bool
+	done                          chan *connection
 	lock                          sync.Mutex
 }
 
@@ -123,7 +124,7 @@ func (conn *connection) download(body io.ReadCloser) {
 				conn.received = conn.length
 			}
 			conn.lock.Unlock()
-			conn.done <- true
+			conn.done <- nil
 			break
 		}
 		wrote, err := io.CopyN(conn.file, body, int64(LEN_CHECK))
@@ -131,9 +132,10 @@ func (conn *connection) download(body io.ReadCloser) {
 			conn.received += int(wrote)
 			conn.length = conn.received
 			conn.lock.Unlock()
-			conn.done <- true
-			if (err != io.EOF) {
-				panic(err)
+			if (err == io.EOF) {
+				conn.done <- nil
+			} else {
+				conn.done <- conn
 			}
 			break
 		}
@@ -154,7 +156,7 @@ type Download struct {
 	filename    string
 	length      int
 	waitlist    sync.WaitGroup
-	connDone    chan bool
+	connDone    chan *connection
 	connections []*connection
 	stopAdd     chan bool
 	stop 		chan os.Signal
@@ -239,21 +241,28 @@ func (down *Download) updateStatus() {
 					conns++
 				}
 			}
-			// moving average speed
-			speedNow := (written - lastWritten) * int(time.Second) / duration
-			var speed int
-			for i, sp := range speedHist[1:] {
-				speedHist[i] = sp
-				speed += sp
-			}
-			speedHist[len(speedHist)-1] = speedNow
-			speed = (speed + speedNow) / len(speedHist)
 			if down.emitStatus != nil {
+				// moving average speed
+				speedNow := (written - lastWritten) * int(time.Second) / duration
+				var speed int
+				for i, sp := range speedHist[1:] {
+					speedHist[i] = sp
+					speed += sp
+				}
+				speedHist[len(speedHist)-1] = speedNow
+				speed = (speed + speedNow) / len(speedHist)
+				var eta string
+				if speed == 0 {
+					eta = "LongTime"
+				} else {
+					eta = time.Duration((down.length - written) * int(time.Second) / speed).Round(time.Second).String()
+				}
 				down.emitStatus <- status{
 					speed:   speed,
 					percent: float64(written) / float64(down.length) * 100,
 					written: written,
 					conns:   conns,
+					eta: eta,
 				}
 			}
 			if written >= down.length {
@@ -309,11 +318,15 @@ func (down *Download) startOthers() {
 		select {
 		case <-down.stopAdd:
 			return
-		case <-down.connDone:
-			if down.length > 0 {
-				down.addConn()
+		case conn := <-down.connDone:
+			if conn == nil {  // finished
+				if down.length > 0 {
+					down.addConn()
+				}
+				down.waitlist.Done()
+			} else {  // failed
+				conn.start(down.url, down.headers)
 			}
-			down.waitlist.Done()
 		}
 	}
 }
@@ -445,7 +458,7 @@ func newDownload(url string, maxConns int) *Download {
 		emitStatus: make(chan status),
 		stopStatus: make(chan bool),
 		stopAdd:    make(chan bool),
-		connDone:   make(chan bool),
+		connDone:   make(chan *connection),
 	}
 	return &down
 }

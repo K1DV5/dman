@@ -1,6 +1,6 @@
 // -{go run %f download.go extension.go setup.go http://localhost/gparted-live-1.0.0-5-i686.iso}
-// -{go run %f download.go extension.go setup.go ./.dman/gparted-live-1.0.0-5-i686.iso.dman}
 // -{go install}
+// -{go run %f download.go extension.go setup.go ./.dman/gparted-live-1.0.0-5-i686.iso.dman}
 // -{go fmt %f}
 
 package main
@@ -10,41 +10,40 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"time"
 )
 
 const (
 	KB = 1024
 	MB = KB * KB
-	SPEED_HIST_LEN = 10
+	GB = MB * KB
 )
 
+func readableSize(length int) (float64, string) {
+	var value = float64(length)
+	var unit string
+	switch {
+	case value > GB:
+		value /= GB
+		unit = "GB"
+	case value > MB:
+		value /= MB
+		unit = "MB"
+	case value > KB:
+		value /= KB
+		unit = "KB"
+	default:
+		unit = "B"
+	}
+	return value, unit
+}
+
 func showProgress(statusChan chan status) {
-	var speedUnit string
-	var speedHist [SPEED_HIST_LEN]float64
 	for stat := range statusChan {
 		if stat.rebuilding {
 			fmt.Printf("\rRebuilding %.0f%%" + strings.Repeat(" ", 30), stat.percent)
 		} else {
-			// moving average speed
-			var speed float64
-			for i, sp := range speedHist[1:] {
-				speedHist[i] = sp
-				speed += sp
-			}
-			speedHist[len(speedHist)-1] = stat.speed
-			speed = (speed + stat.speed) / float64(len(speedHist)) * float64(time.Second)
-			switch {
-			case speed > MB:
-				speed /= MB
-				speedUnit = "MB"
-			case speed > KB:
-				speed /= KB
-				speedUnit = "KB"
-			default:
-				speedUnit = "B"
-			}
-			fmt.Printf("\r%.2f%% %.2f%s/s %d connections    ", stat.percent, speed, speedUnit, stat.conns)
+			speedVal, unit := readableSize(stat.speed)
+			fmt.Printf("\r%.2f%% %.2f%s/s %d connections %s    ", stat.percent, speedVal, unit, stat.conns, stat.eta)
 		}
 	}
 }
@@ -70,9 +69,9 @@ func standalone(url string, resume bool) {
 	fmt.Printf("\rDownloading '%s' press Ctrl+C to stop.\n", d.filename)
 	go showProgress(d.emitStatus)
 
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt)
-	finished := d.wait(interrupt)
+	// enable interrupt
+	signal.Notify(d.stop, os.Interrupt)
+	finished := d.wait()
 
 	if finished {
 		d.rebuild()
@@ -81,7 +80,6 @@ func standalone(url string, resume bool) {
 		fmt.Printf("\rPaused, saved progress to '%s/%s%s'.", PART_DIR_NAME, d.filename, PROG_FILE_EXT)
 		d.saveProgress()
 	}
-	close(interrupt)
 }
 
 func main() {
