@@ -1,3 +1,4 @@
+// -{go install}
 // -{go fmt %f}
 
 package main
@@ -24,12 +25,13 @@ const (
 	LONG_TIME     = 3 * 24 * int(time.Hour) // 3 days, arbitrarily large duration
 	PART_DIR_NAME = ".dman"
 	PROG_FILE_EXT = ".dman"
+	SPEED_HIST_LEN = 10
 )
 
 type status struct {
 	id int
 	rebuilding bool
-	speed      float64
+	speed      int
 	written    int
 	percent    float64
 	conns      int
@@ -65,7 +67,7 @@ func (conn *connection) start(url string, headers [][]string) (*http.Response, e
 	for _, pair := range headers {
 		req.Header.Add(pair[0], pair[1])
 	}
-	if conn.length > 0 {
+	if conn.length > 0 {  // unknown length, probably additional connection
 		// request partial content
 		req.Header.Add("Range", "bytes="+strconv.Itoa(conn.offset+conn.received)+"-"+strconv.Itoa(conn.offset+conn.length-1))
 	}
@@ -104,7 +106,6 @@ func (conn *connection) start(url string, headers [][]string) (*http.Response, e
 func (conn *connection) download(body io.ReadCloser) {
 	// also cache chunks for faster writes
 	defer body.Close()
-	buf := make([]byte, LEN_CHECK)
 	for {
 		conn.lock.Lock()
 		select {
@@ -112,11 +113,10 @@ func (conn *connection) download(body io.ReadCloser) {
 			return
 		default:
 		}
-		if conn.length-conn.received < LEN_CHECK { // final
+		if conn.length > 0 && conn.length-conn.received < LEN_CHECK { // final
 			remaining := conn.length - conn.received
 			if remaining > 0 {
-				body.Read(buf[:remaining])
-				conn.file.Write(buf[:remaining])
+				io.CopyN(conn.file, body, int64(remaining))
 				conn.received += remaining
 			} else if remaining < 0 {  // received too much
 				conn.file.Truncate(int64(conn.length))
@@ -126,8 +126,17 @@ func (conn *connection) download(body io.ReadCloser) {
 			conn.done <- true
 			break
 		}
-		body.Read(buf)
-		conn.file.Write(buf)
+		wrote, err := io.CopyN(conn.file, body, int64(LEN_CHECK))
+		if err != nil {
+			conn.received += int(wrote)
+			conn.length = conn.received
+			conn.lock.Unlock()
+			conn.done <- true
+			if (err != io.EOF) {
+				panic(err)
+			}
+			break
+		}
 		conn.received += LEN_CHECK
 		conn.lock.Unlock()
 	}
@@ -148,6 +157,7 @@ type Download struct {
 	connDone    chan bool
 	connections []*connection
 	stopAdd     chan bool
+	stop 		chan os.Signal
 }
 
 func (down *Download) addConn() error {
@@ -195,6 +205,7 @@ func (down *Download) updateStatus() {
 	connLastReceived := make([]int, down.maxConns)
 	var written, lastWritten, conns int
 	var rebuilding bool
+	var speedHist [SPEED_HIST_LEN]int
 	for {
 		select {
 		case <-down.stopStatus:
@@ -228,10 +239,18 @@ func (down *Download) updateStatus() {
 					conns++
 				}
 			}
-			writtenDelta := written - lastWritten
+			// moving average speed
+			speedNow := (written - lastWritten) * int(time.Second) / duration
+			var speed int
+			for i, sp := range speedHist[1:] {
+				speedHist[i] = sp
+				speed += sp
+			}
+			speedHist[len(speedHist)-1] = speedNow
+			speed = (speed + speedNow) / len(speedHist)
 			if down.emitStatus != nil {
 				down.emitStatus <- status{
-					speed:   float64(writtenDelta) / float64(duration),
+					speed:   speed,
 					percent: float64(written) / float64(down.length) * 100,
 					written: written,
 					conns:   conns,
@@ -265,6 +284,9 @@ func (down *Download) start() error {
 func (down *Download) startOthers() {
 	// add connections
 	toAdd := down.maxConns
+	if down.length < 0 {  // unknown size, single connection
+		toAdd = 0
+	}
 	for _, conn := range down.connections {
 		conn.lock.Lock()
 		if conn.received < conn.length {
@@ -288,13 +310,15 @@ func (down *Download) startOthers() {
 		case <-down.stopAdd:
 			return
 		case <-down.connDone:
-			down.addConn()
+			if down.length > 0 {
+				down.addConn()
+			}
 			down.waitlist.Done()
 		}
 	}
 }
 
-func (down *Download) wait(interrupt chan os.Signal) bool {
+func (down *Download) wait() bool {
 	over := make(chan bool)
 	go func() {
 		down.waitlist.Wait()
@@ -302,7 +326,7 @@ func (down *Download) wait(interrupt chan os.Signal) bool {
 	}()
 	var finished bool
 	select {
-	case <-interrupt:
+	case <-down.stop:
 		// abort/pause
 		down.stopAdd <- true
 		wg := sync.WaitGroup{}
@@ -334,6 +358,9 @@ func (down *Download) rebuild() {
 		return down.connections[i].offset < down.connections[j].offset
 	})
 	file := down.connections[0].file
+	if down.length < 0 {  // unknown file size, single connection, length set at end
+		down.length = down.connections[0].length
+	}
 	for _, conn := range down.connections[1:] {
 		conn.file.Seek(0, 0)
 		io.Copy(file, conn.file)
@@ -414,6 +441,7 @@ func newDownload(url string, maxConns int) *Download {
 	down := Download{
 		url:        url,
 		maxConns:   maxConns,
+		stop: 		make(chan os.Signal),
 		emitStatus: make(chan status),
 		stopStatus: make(chan bool),
 		stopAdd:    make(chan bool),
