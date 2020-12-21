@@ -1,5 +1,5 @@
-// -{go install}
 // -{go fmt %f}
+// -{go install}
 
 package main
 
@@ -10,32 +10,35 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"path/filepath"
 )
 
 const (
-	LEN_CHECK     = 1 << 16              // 64KB, data interval to check if connection should stop
-	MIN_CUT_ETA   = 5 * int(time.Second) // min ramaining time to split connection
-	STAT_INTERVAL = 500 * time.Millisecond
-	LONG_TIME     = 3 * 24 * int(time.Hour) // 3 days, arbitrarily large duration
-	PART_DIR_NAME = ".dman"
-	PROG_FILE_EXT = ".dman"
+	LEN_CHECK      = 1 << 16              // 64KB, data interval to check if connection should stop
+	MIN_CUT_ETA    = 5 * int(time.Second) // min ramaining time to split connection
+	STAT_INTERVAL  = 500 * time.Millisecond
+	LONG_TIME      = 3 * 24 * int(time.Hour) // 3 days, arbitrarily large duration
+	PART_DIR_NAME  = ".dman"
+	PROG_FILE_EXT  = ".dman"
 	SPEED_HIST_LEN = 10
+	KB             = 1024
+	MB             = KB * KB
+	GB             = MB * KB
 )
 
 type status struct {
-	id int
-	rebuilding bool
-	speed      int
-	written    int
-	percent    float64
-	conns      int
-	eta string
+	Id         int     `json:"id,omitempty"`
+	Rebuilding bool    `json:"rebuilding,omitempty"`
+	Speed      string  `json:"speed,omitempty"`
+	Written    int     `json:"written,omitempty"`
+	Percent    float64 `json:"percent,omitempty"`
+	Conns      int     `json:"conns,omitempty"`
+	Eta        string  `json:"eta,omitempty"`
 }
 
 func getFilename(resp *http.Response) string {
@@ -50,6 +53,25 @@ func getFilename(resp *http.Response) string {
 		filename = url_parts[len(url_parts)-1]
 	}
 	return filename
+}
+
+func readableSize(length int) (float64, string) {
+	var value = float64(length)
+	var unit string
+	switch {
+	case value > GB:
+		value /= GB
+		unit = "GB"
+	case value > MB:
+		value /= MB
+		unit = "MB"
+	case value > KB:
+		value /= KB
+		unit = "KB"
+	default:
+		unit = "B"
+	}
+	return value, unit
 }
 
 type connection struct {
@@ -68,7 +90,7 @@ func (conn *connection) start(url string, headers [][]string) (*http.Response, e
 	for _, pair := range headers {
 		req.Header.Add(pair[0], pair[1])
 	}
-	if conn.length > 0 {  // unknown length, probably additional connection
+	if conn.length > 0 { // unknown length, probably additional connection
 		// request partial content
 		req.Header.Add("Range", "bytes="+strconv.Itoa(conn.offset+conn.received)+"-"+strconv.Itoa(conn.offset+conn.length-1))
 	}
@@ -119,7 +141,7 @@ func (conn *connection) download(body io.ReadCloser) {
 			if remaining > 0 {
 				io.CopyN(conn.file, body, int64(remaining))
 				conn.received += remaining
-			} else if remaining < 0 {  // received too much
+			} else if remaining < 0 { // received too much
 				conn.file.Truncate(int64(conn.length))
 				conn.received = conn.length
 			}
@@ -132,7 +154,7 @@ func (conn *connection) download(body io.ReadCloser) {
 			conn.received += int(wrote)
 			conn.length = conn.received
 			conn.lock.Unlock()
-			if (err == io.EOF) {
+			if err == io.EOF {
 				conn.done <- nil
 			} else {
 				conn.done <- conn
@@ -146,6 +168,7 @@ func (conn *connection) download(body io.ReadCloser) {
 
 type Download struct {
 	// Required:
+	id       int
 	url      string
 	maxConns int
 	// status
@@ -159,7 +182,7 @@ type Download struct {
 	connDone    chan *connection
 	connections []*connection
 	stopAdd     chan bool
-	stop 		chan os.Signal
+	stop        chan os.Signal
 }
 
 func (down *Download) addConn() error {
@@ -169,7 +192,7 @@ func (down *Download) addConn() error {
 		conn.lock.Lock()
 		free := conn.length - conn.received // not yet downloaded
 		if free > longestFree {
-			if longest != nil {  // bigger one found
+			if longest != nil { // bigger one found
 				longest.lock.Unlock()
 			}
 			longest = conn
@@ -218,8 +241,8 @@ func (down *Download) updateStatus() {
 			if rebuilding { // finished downloading, rebuilding
 				stat, _ := down.connections[0].file.Stat()
 				down.emitStatus <- status{
-					rebuilding: true,
-					percent:    float64(stat.Size()) / float64(down.length) * 100,
+					Rebuilding: true,
+					Percent:    float64(stat.Size()) / float64(down.length) * 100,
 				}
 				continue
 			}
@@ -257,12 +280,14 @@ func (down *Download) updateStatus() {
 				} else {
 					eta = time.Duration((down.length - written) * int(time.Second) / speed).Round(time.Second).String()
 				}
+				speedVal, unit := readableSize(speed)
 				down.emitStatus <- status{
-					speed:   speed,
-					percent: float64(written) / float64(down.length) * 100,
-					written: written,
-					conns:   conns,
-					eta: eta,
+					Id:      down.id,
+					Speed:   fmt.Sprintf("%.2f%s/s", speedVal, unit),
+					Percent: float64(written) / float64(down.length) * 100,
+					Written: written,
+					Conns:   conns,
+					Eta:     eta,
 				}
 			}
 			if written >= down.length {
@@ -293,7 +318,7 @@ func (down *Download) start() error {
 func (down *Download) startOthers() {
 	// add connections
 	toAdd := down.maxConns
-	if down.length < 0 {  // unknown size, single connection
+	if down.length < 0 { // unknown size, single connection
 		toAdd = 0
 	}
 	for _, conn := range down.connections {
@@ -314,18 +339,25 @@ func (down *Download) startOthers() {
 		}
 	}
 	// retasking
+	var failedConns []*connection
 	for {
 		select {
 		case <-down.stopAdd:
 			return
 		case conn := <-down.connDone:
-			if conn == nil {  // finished
+			if conn == nil { // finished
 				if down.length > 0 {
 					down.addConn()
 				}
 				down.waitlist.Done()
-			} else {  // failed
-				conn.start(down.url, down.headers)
+				for _, conn := range failedConns {
+					conn.start(down.url, down.headers)
+				}
+			} else { // failed
+				_, err := conn.start(down.url, down.headers)
+				if err != nil {
+					failedConns = append(failedConns, conn)
+				}
 			}
 		}
 	}
@@ -371,7 +403,7 @@ func (down *Download) rebuild() {
 		return down.connections[i].offset < down.connections[j].offset
 	})
 	file := down.connections[0].file
-	if down.length < 0 {  // unknown file size, single connection, length set at end
+	if down.length < 0 { // unknown file size, single connection, length set at end
 		down.length = down.connections[0].length
 	}
 	for _, conn := range down.connections[1:] {
@@ -383,7 +415,7 @@ func (down *Download) rebuild() {
 	down.stopStatus <- true
 	file.Close()
 	os.Rename(file.Name(), down.filename)
-	os.Remove(filepath.Dir(file.Name()))  // only if empty
+	os.Remove(filepath.Dir(file.Name())) // only if empty
 }
 
 func (down *Download) saveProgress() error {
@@ -450,11 +482,12 @@ type progress struct {
 	Parts    []map[string]int `json:"parts"`
 }
 
-func newDownload(url string, maxConns int) *Download {
+func newDownload(url string, maxConns int, id int) *Download {
 	down := Download{
+		id:         id,
 		url:        url,
 		maxConns:   maxConns,
-		stop: 		make(chan os.Signal),
+		stop:       make(chan os.Signal),
 		emitStatus: make(chan status),
 		stopStatus: make(chan bool),
 		stopAdd:    make(chan bool),

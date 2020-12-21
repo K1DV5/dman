@@ -1,7 +1,7 @@
-// -{go run %f download.go extension.go setup.go http://localhost/gparted-live-1.0.0-5-i686.iso}
-// -{go install}
-// -{go run %f download.go extension.go setup.go ./.dman/gparted-live-1.0.0-5-i686.iso.dman}
 // -{go fmt %f}
+// -{go run %f download.go extension.go setup.go http://localhost/gparted-live-1.0.0-5-i686.iso}
+// -{go run %f download.go extension.go setup.go ./.dman/gparted-live-1.0.0-5-i686.iso.dman}
+// -{go install}
 
 package main
 
@@ -12,44 +12,23 @@ import (
 	"strings"
 )
 
-const (
-	KB = 1024
-	MB = KB * KB
-	GB = MB * KB
-)
-
-func readableSize(length int) (float64, string) {
-	var value = float64(length)
-	var unit string
-	switch {
-	case value > GB:
-		value /= GB
-		unit = "GB"
-	case value > MB:
-		value /= MB
-		unit = "MB"
-	case value > KB:
-		value /= KB
-		unit = "KB"
-	default:
-		unit = "B"
-	}
-	return value, unit
-}
-
 func showProgress(statusChan chan status) {
+	// max width stat:
+	// 100.00% 1004.34KB/s x32 10d23h21m23s
+	// min width stat:
+	// 1.00% 1.34KB/s x2 3s
+	// variation space: 16
 	for stat := range statusChan {
-		if stat.rebuilding {
-			fmt.Printf("\rRebuilding %.0f%%" + strings.Repeat(" ", 30), stat.percent)
+		if stat.Rebuilding {
+			fmt.Printf("\rRebuilding %.0f%%"+strings.Repeat(" ", 19), stat.Percent)
 		} else {
-			speedVal, unit := readableSize(stat.speed)
-			fmt.Printf("\r%.2f%% %.2f%s/s %d connections %s    ", stat.percent, speedVal, unit, stat.conns, stat.eta)
+			fmt.Printf("\r%.2f%% %s x%d %s"+strings.Repeat(" ", 16), stat.Percent, stat.Speed, stat.Conns, stat.Eta)
 		}
 	}
 }
 
 func standalone(url string, resume bool) {
-	d := newDownload("", 32)
+	d := newDownload("", 32, 0)
 	if resume {
 		fmt.Print("Resuming...")
 		if err := d.resume(url); err != nil { // set url & filename as well
