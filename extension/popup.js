@@ -1,4 +1,8 @@
 let bg = chrome.extension.getBackgroundPage()
+
+bg.switchUpdates(true)
+window.addEventListener('close', () => bg.switchUpdates(false))
+
 let lastFocusId
 
 const urlInput = document.getElementById('url')
@@ -50,7 +54,7 @@ function addRow(data, id) {
                 progress.style.background = 'cyan'
                 percent.innerText = data.percent + '%'
                 speed.innerText = data.speed
-                conns.innerText = 'x' + data.connections
+                conns.innerText = 'x' + data.conns
                 eta.innerText = data.eta
             } else if (data.state == bg.S_PAUSED) { // paused
                 progress.style.background = 'orange'
@@ -92,9 +96,9 @@ function update(ids) {
             let [_, progress, infoElm] = item.firstElementChild.children
             progress.style.width = info.percent + '%'
             let [percent, speed, conns, eta] = infoElm.children
-            percent.innerText = info.percent + '%'
+            percent.innerText = (Math.round(info.percent * 100) / 100) + '%'
             speed.innerText = info.speed
-            conns.innerText = 'x' + info.connections
+            conns.innerText = 'x' + info.conns
             eta.innerText = info.eta
         } else if (info.state == bg.S_PAUSED) {  // paused
             let [_, progress, infoElm] = item.firstElementChild.children

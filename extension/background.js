@@ -15,7 +15,7 @@ downloads = {
     //     size: '23.1MB',
     //     speed: '8MB/s',
     //     percent: 35,
-    //     connections: 13,
+    //     conns: 13,
     //     eta: '5m23s',
     //     date: '12/16/2020'
     // },
@@ -52,12 +52,17 @@ downloads = {
     // },
 }
 
+// downloads folder, set in setupListener() below
+let downloadsPath
+
 function addItem(url) {
     // send to native
     native.postMessage({
         type: 'new',
         id: Number((Date.now()).toString().slice(2, -2)),
-        url
+        url,
+        conns: 32,
+        dir: downloadsPath
     })
 }
 
@@ -77,32 +82,99 @@ function changeState(id, to) {
     }
 }
 
+function switchUpdates(to) {
+    native.postMessage({type: 'info', info: to})
+}
+
 native.onMessage.addListener(message => {
     if (message.type == 'info') {
+        console.log("info")
         let ids = []
-        for (let [id, info] of message.downloads) {
-            ids.push(id)
-            downloads[id] = info
+        for (let stat of message.stats || []) {
+            ids.push(stat.id)
+            let download = downloads[stat.id]
+            download.percent = stat.percent
+            download.conns = stat.conns
+            download.eta = stat.eta
+            download.speed = stat.speed
         }
         chrome.extension.getViews({type: 'popup'})[0]?.update(ids)  // popup.addRow
-    } else {
-        let id = download.id
-        delete download.id
-        let type = download.type
-        delete download.type
-        downloads[id] = download
-        if (type == 'new') {
-            download.date = new Date().toLocaleDateString()
-            downloads[id] = download
-            // ? because the popup may be closed now
-            chrome.extension.getViews({type: 'popup'})[0]?.addRow(download, id)  // popup.addRow
-        } else {
-            chrome.extension.getViews({type: 'popup'})[0]?.update(ids)  // popup.addRow
+    } else if (message.type == "new") {
+        let download = {
+            state: S_DOWNLOADING,
+            url: message.url,
+            filename: message.filename,
+            size: message.size,
+            percent: 0,
+            conns: 0,
+            speed: '...',
+            eta: '...',
+            date: new Date().toLocaleDateString(),
+        }
+        downloads[message.id] = download
+        // ? because the popup may be closed now
+        let popup = chrome.extension.getViews({type: 'popup'})[0]
+        if (popup) {
+            popup.addRow(download, message.id)  // popup.addRow
+            switchUpdates(true)
         }
         chrome.storage.local.set({downloads})
+    } else if (message.type == "pause") {
+        downloads[message.id].state = S_PAUSED
+        chrome.extension.getViews({type: 'popup'})[0]?.update([message.id])  // popup.update
+        chrome.storage.local.set({downloads})
+    } else if (message.type == "resume") {
+        downloads[message.id].state = S_DOWNLOADING
+        chrome.extension.getViews({type: 'popup'})[0]?.update([message.id])  // popup.update
+        chrome.storage.local.set({downloads})
+    } else if (message.type == "completed") {
+        downloads[message.id].state = S_COMPLETED
+        chrome.extension.getViews({type: 'popup'})[0]?.update([message.id])  // popup.update
+        let download = downloads[message.id]
+        delete download.percent
+        delete download.conns
+        delete download.speed
+        delete download.eta
+        let progStates = [S_DOWNLOADING, S_REBUILDING]
+        if (Object.values(downloads).filter(d => progStates.includes(d.state)).length == 0) {
+            switchUpdates(false)
+        }
+        chrome.storage.local.set({downloads})
+    } else if (message.type == "error") {
+        console.error('DMan error: ', message.error)
+    } else {
+        alert('Unknown message type:' + message.type)
     }
 });
 
 // native.onDisconnect.addListener(() => {
 //     chrome.storage.local.set({downloads})
 // });
+
+chrome.downloads.setShelfEnabled(false)
+
+function setupListener(pingFilename) {
+    let pathSep = navigator.platform == 'Win32' ? '\\' : '/'
+    downloadsPath = pingFilename.slice(0, pingFilename.lastIndexOf(pathSep))
+    chrome.downloads.onCreated.addListener(item => {
+        chrome.downloads.pause(item.id, () => {
+            addItem(item.url)
+            chrome.downloads.erase({id: item.id})
+        })
+    })
+}
+
+// get downloads folder
+function getFilename(item) {
+    if (item.filename) {
+        chrome.downloads.pause(item.id, () => {
+            chrome.downloads.erase({id: item.id})
+            chrome.downloads.onChanged.removeListener(getFilename)
+            setupListener(item.filename.current)
+        })
+    }
+}
+
+chrome.downloads.onChanged.addListener(getFilename)
+chrome.downloads.download({url: 'data:,'})
+
