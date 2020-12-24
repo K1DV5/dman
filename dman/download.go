@@ -1,5 +1,5 @@
-// -{go fmt %f}
 // -{go install}
+// -{go fmt %f}
 
 package main
 
@@ -43,11 +43,10 @@ type status struct {
 
 func getFilename(resp *http.Response) string {
 	var filename string
-	disposition := resp.Header["Content-Disposition"]
-	prefix := "filename="
-	if len(disposition) > 0 && strings.Contains(disposition[0], prefix) {
-		start := strings.Index(disposition[0], prefix) + len(prefix)
-		filename = disposition[0][start:]
+	disposition := resp.Header.Get("Content-Disposition")
+	if prefix := "filename="; strings.Contains(disposition, prefix) {
+		start := strings.Index(disposition, prefix) + len(prefix)
+		filename = disposition[start:]
 	} else {
 		url_parts := strings.Split(resp.Request.URL.Path, "/")
 		filename = url_parts[len(url_parts)-1]
@@ -78,6 +77,7 @@ type connection struct {
 	offset, length, received, eta int
 	stop                          chan bool
 	file                          *os.File
+	dir string
 	done                          chan *connection
 	lock                          sync.Mutex
 }
@@ -116,7 +116,7 @@ func (conn *connection) start(url string, headers [][]string) (*http.Response, e
 	conn.stop = make(chan bool)
 	conn.eta = LONG_TIME
 	if conn.file == nil { // new, not resuming
-		file, err := os.Create(PART_DIR_NAME + "/" + getFilename(resp) + "." + strconv.Itoa(conn.offset))
+		file, err := os.Create(filepath.Join(conn.dir, PART_DIR_NAME, getFilename(resp) + "." + strconv.Itoa(conn.offset)))
 		if err != nil {
 			return nil, err
 		}
@@ -170,6 +170,7 @@ type Download struct {
 	// Required:
 	id       int
 	url      string
+	dir 	string
 	maxConns int
 	// status
 	emitStatus chan status
@@ -178,7 +179,7 @@ type Download struct {
 	headers     [][]string
 	filename    string
 	length      int
-	waitlist    sync.WaitGroup
+	waitlist    *sync.WaitGroup
 	connDone    chan *connection
 	connections []*connection
 	stopAdd     chan bool
@@ -212,6 +213,7 @@ func (down *Download) addConn() error {
 		offset: longest.offset + longest.length - newLen,
 		length: newLen,
 		done:   down.connDone,
+		dir: down.dir,
 	}
 	_, err := newConn.start(down.url, down.headers)
 	if err != nil {
@@ -241,6 +243,7 @@ func (down *Download) updateStatus() {
 			if rebuilding { // finished downloading, rebuilding
 				stat, _ := down.connections[0].file.Stat()
 				down.emitStatus <- status{
+					Id: down.id,
 					Rebuilding: true,
 					Percent:    float64(stat.Size()) / float64(down.length) * 100,
 				}
@@ -298,8 +301,8 @@ func (down *Download) updateStatus() {
 }
 
 func (down *Download) start() error {
-	os.Mkdir(PART_DIR_NAME, 666)
-	firstConn := connection{done: down.connDone}
+	os.Mkdir(filepath.Join(down.dir, PART_DIR_NAME), 666)
+	firstConn := connection{done: down.connDone, dir: down.dir}
 	resp, err := firstConn.start(down.url, down.headers)
 	if err != nil {
 		return err
@@ -397,7 +400,7 @@ func (down *Download) wait() bool {
 	return finished
 }
 
-func (down *Download) rebuild() {
+func (down *Download) rebuild() error {
 	// sort by offset
 	sort.Slice(down.connections, func(i, j int) bool {
 		return down.connections[i].offset < down.connections[j].offset
@@ -407,19 +410,32 @@ func (down *Download) rebuild() {
 		down.length = down.connections[0].length
 	}
 	for _, conn := range down.connections[1:] {
-		conn.file.Seek(0, 0)
-		io.Copy(file, conn.file)
-		conn.file.Close()
-		os.Remove(conn.file.Name())
+		if _, err := conn.file.Seek(0, 0); err != nil {
+			return err
+		}
+		if _, err := io.Copy(file, conn.file); err != nil {
+			return err
+		}
+		if err := conn.file.Close(); err != nil {
+			return err
+		}
+		if err := os.Remove(conn.file.Name()); err != nil {
+			return err
+		}
 	}
 	down.stopStatus <- true
-	file.Close()
-	os.Rename(file.Name(), down.filename)
+	if err := file.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(file.Name(), filepath.Join(down.dir, down.filename)); err != nil {
+		return err
+	}
 	os.Remove(filepath.Dir(file.Name())) // only if empty
+	return nil
 }
 
 func (down *Download) saveProgress() error {
-	prog := progress{Url: down.url, Filename: down.filename}
+	prog := progress{Url: down.url, Filename: down.filename, Dir: down.dir}
 	for _, conn := range down.connections {
 		connProg := map[string]int{
 			"offset":   conn.offset,
@@ -428,7 +444,7 @@ func (down *Download) saveProgress() error {
 		}
 		prog.Parts = append(prog.Parts, connProg)
 	}
-	f, err := os.Create(PART_DIR_NAME + "/" + down.filename + PROG_FILE_EXT)
+	f, err := os.Create(filepath.Join(down.dir, PART_DIR_NAME, down.filename + PROG_FILE_EXT))
 	if err != nil {
 		return err
 	}
@@ -447,10 +463,12 @@ func (down *Download) resume(progressFile string) error {
 		return err
 	}
 	down.url = prog.Url
+	down.dir = prog.Dir
 	down.filename = prog.Filename
 	go down.updateStatus()
 	for _, conn := range prog.Parts {
-		file, err := os.OpenFile(PART_DIR_NAME+"/"+down.filename+"."+strconv.Itoa(conn["offset"]), os.O_APPEND, 755)
+		fname := filepath.Join(down.dir, PART_DIR_NAME, down.filename+"."+strconv.Itoa(conn["offset"]))
+		file, err := os.OpenFile(fname, os.O_APPEND, 755)
 		if err != nil {
 			return err
 		}
@@ -460,6 +478,7 @@ func (down *Download) resume(progressFile string) error {
 			received: conn["received"],
 			done:     down.connDone,
 			file:     file,
+			dir: down.dir,
 		}
 		if newConn.received < newConn.length { // unfinished
 			_, err := newConn.start(down.url, down.headers)
@@ -478,20 +497,23 @@ func (down *Download) resume(progressFile string) error {
 
 type progress struct {
 	Url      string           `json:"url"`
+	Dir string `json:"dir"`
 	Filename string           `json:"filename"`
 	Parts    []map[string]int `json:"parts"`
 }
 
-func newDownload(url string, maxConns int, id int) *Download {
+func newDownload(url string, maxConns int, id int, dir string) *Download {
 	down := Download{
 		id:         id,
 		url:        url,
+		dir: dir,
 		maxConns:   maxConns,
 		stop:       make(chan os.Signal),
 		emitStatus: make(chan status),
 		stopStatus: make(chan bool),
 		stopAdd:    make(chan bool),
 		connDone:   make(chan *connection),
+		waitlist: &sync.WaitGroup{},
 	}
 	return &down
 }

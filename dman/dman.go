@@ -1,5 +1,5 @@
-// -{go fmt %f}
 // -{go run %f download.go extension.go setup.go http://localhost/gparted-live-1.0.0-5-i686.iso}
+// -{go fmt %f}
 // -{go run %f download.go extension.go setup.go ./.dman/gparted-live-1.0.0-5-i686.iso.dman}
 // -{go install}
 
@@ -28,7 +28,7 @@ func showProgress(statusChan chan status) {
 }
 
 func standalone(url string, resume bool) {
-	d := newDownload("", 32, 0)
+	d := newDownload("", 32, 0, ".")
 	if resume {
 		fmt.Print("Resuming...")
 		if err := d.resume(url); err != nil { // set url & filename as well
