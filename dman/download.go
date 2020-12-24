@@ -397,6 +397,7 @@ func (down *Download) wait() bool {
 		finished = true
 	}
 	close(down.stopAdd)
+	close(down.connDone)
 	return finished
 }
 
@@ -424,6 +425,8 @@ func (down *Download) rebuild() error {
 		}
 	}
 	down.stopStatus <- true
+	close(down.stopStatus)
+	close(down.emitStatus)
 	if err := file.Close(); err != nil {
 		return err
 	}
