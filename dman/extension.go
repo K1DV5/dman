@@ -161,7 +161,19 @@ func (downs *downloads) sendInfo() {
 		if sending {
 			var stats []status
 			for _, down := range downs.collection {
-				stats = append(stats, <-down.emitStatus)
+				stat, ok := <-down.emitStatus
+				if !ok {
+					continue
+				}
+				stats = append(stats, stat)
+			}
+			if len(stats) == 0 {
+				msg := message{
+					Type: "info",
+				}
+				msg.send()
+				sending = <- downs.statSwitch
+				continue
 			}
 			msg := message{
 				Type: "info",
@@ -190,14 +202,7 @@ func (downs *downloads) listen() {
 		}
 		// send to workers
 		if msg.Type == "info" {
-			if msg.Info && len(downs.collection) == 0 {
-				msg := message{
-					Type: "info",
-				}
-				msg.send()
-			} else {
-				downs.statSwitch <- msg.Info
-			}
+			downs.statSwitch <- msg.Info
 		} else if msg.Type == "pause" {
 			downs.collection[msg.Id].stop <- os.Interrupt
 		} else if msg.Type == "new" {
