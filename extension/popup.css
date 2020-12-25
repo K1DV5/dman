@@ -30,10 +30,12 @@ button:active {
 }
 
 .info {
-    display: flex;
-    justify-content: space-between;
     font-size: 80%;
-    margin-right: 5em;
+}
+
+.info > span {
+    display: inline-block;
+    width: 20%;
 }
 
 #list {
@@ -76,6 +78,7 @@ tr:focus td {
 
 .progress {
     height: .1em;
+    transition: width 1s;
 }
 
 #tbl-head {

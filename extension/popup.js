@@ -39,7 +39,7 @@ function addRow(data, id) {
         fnamePart.appendChild(info)
         info.className = 'info'
         if (data.state == bg.S_REBUILDING) {  // rebuilding
-            progress.style.background = 'cyan'
+            progress.style.background = 'lightgreen'
             info.innerText = 'Rebuilding'
         } else {
             info.innerHTML = '<span></span>'.repeat(5)
@@ -116,6 +116,7 @@ function update(ids) {
             eta.innerText = ''
         } else if (info.state == bg.S_REBUILDING) {  // rebuilding
             let [_, progress, infoElm] = item.firstElementChild.children
+            progress.style.background = 'lightgreen'
             progress.style.width = info.percent + '%'
             infoElm.innerHTML = 'Rebuilding'
         } else {  // 4, completed
