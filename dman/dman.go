@@ -22,7 +22,7 @@ func showProgress(statusChan chan status) {
 		if stat.Rebuilding {
 			fmt.Printf("\rRebuilding %.0f%%"+strings.Repeat(" ", 19), stat.Percent)
 		} else {
-			fmt.Printf("\r%.2f%% %s x%d %s"+strings.Repeat(" ", 16), stat.Percent, stat.Speed, stat.Conns, stat.Eta)
+			fmt.Printf("\r%.2f%% %s %s x%d %s"+strings.Repeat(" ", 16), stat.Percent, stat.Written, stat.Speed, stat.Conns, stat.Eta)
 		}
 	}
 }

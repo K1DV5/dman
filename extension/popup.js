@@ -42,28 +42,23 @@ function addRow(data, id) {
             progress.style.background = 'cyan'
             info.innerText = 'Rebuilding'
         } else {
-            let percent = document.createElement('span')
-            info.appendChild(percent)
-            let speed = document.createElement('span')
-            info.appendChild(speed)
-            let conns = document.createElement('span')
-            info.appendChild(conns)
-            let eta = document.createElement('span')
-            info.appendChild(eta)
+            info.innerHTML = '<span></span>'.repeat(5)
+            let [percent, written, speed, eta, conns] = info.children
             if (data.state == bg.S_DOWNLOADING) {  // downloading
                 progress.style.background = 'cyan'
                 percent.innerText = data.percent + '%'
+                written.innerText = data.written
                 speed.innerText = data.speed
-                conns.innerText = 'x' + data.conns
                 eta.innerText = data.eta
+                conns.innerText = 'x' + data.conns
             } else if (data.state == bg.S_PAUSED) { // paused
                 progress.style.background = 'orange'
                 percent.innerText = data.percent + '%'
-                speed.innerText = 'Paused'
+                written.innerText = 'Paused'
             } else {  // 2, failed
                 progress.style.background = 'red'
                 percent.innerText = data.percent + '%'
-                speed.innerText = 'Failed'
+                written.innerText = 'Failed'
             }
         }
     }
@@ -95,24 +90,27 @@ function update(ids) {
         if (info.state == bg.S_DOWNLOADING) {  // downloading
             let [_, progress, infoElm] = item.firstElementChild.children
             progress.style.width = info.percent + '%'
-            let [percent, speed, conns, eta] = infoElm.children
+            let [percent, written, speed, eta, conns] = infoElm.children
             percent.innerText = (Math.round(info.percent * 100) / 100) + '%'
+            written.innerText = info.written
             speed.innerText = info.speed
             conns.innerText = 'x' + info.conns
             eta.innerText = info.eta
         } else if (info.state == bg.S_PAUSED) {  // paused
             let [_, progress, infoElm] = item.firstElementChild.children
             progress.style.background = 'yellow'
-            let [percent, speed, conns, eta] = infoElm.children
+            let [percent, written, speed, eta, conns] = infoElm.children
             percent.innerText = info.percent + '%'
+            written.innerText = info.written
             speed.innerText = 'Paused'
             conns.innerText = ''
             eta.innerText = ''
         } else if (info.state == bg.S_FAILED) {  // failed
             let [_, progress, infoElm] = item.firstElementChild.children
             progress.style.background = 'red'
-            let [percent, speed, conns, eta] = infoElm.children
+            let [percent, written, speed, eta, conns] = infoElm.children
             percent.innerText = info.percent + '%'
+            written.innerText = info.written
             speed.innerText = 'Failed'
             conns.innerText = info.error
             eta.innerText = ''

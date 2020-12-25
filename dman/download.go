@@ -35,7 +35,7 @@ type status struct {
 	Id         int     `json:"id,omitempty"`
 	Rebuilding bool    `json:"rebuilding,omitempty"`
 	Speed      string  `json:"speed,omitempty"`
-	Written    int     `json:"written,omitempty"`
+	Written    string     `json:"written,omitempty"`
 	Percent    float64 `json:"percent,omitempty"`
 	Conns      int     `json:"conns,omitempty"`
 	Eta        string  `json:"eta,omitempty"`
@@ -283,12 +283,13 @@ func (down *Download) updateStatus() {
 				} else {
 					eta = time.Duration((down.length - written) * int(time.Second) / speed).Round(time.Second).String()
 				}
-				speedVal, unit := readableSize(speed)
+				speedVal, sUnit := readableSize(speed)
+				writtenVal, wUnit := readableSize(written)
 				down.emitStatus <- status{
 					Id:      down.id,
-					Speed:   fmt.Sprintf("%.2f%s/s", speedVal, unit),
+					Speed:   fmt.Sprintf("%.2f%s/s", speedVal, sUnit),
 					Percent: float64(written) / float64(down.length) * 100,
-					Written: written,
+					Written: fmt.Sprintf("%.2f%s", writtenVal, wUnit),
 					Conns:   conns,
 					Eta:     eta,
 				}

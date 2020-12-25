@@ -14,6 +14,7 @@ downloads = {
     //     filename: 'foo',
     //     size: '23.1MB',
     //     speed: '8MB/s',
+    //     written: '15.32MB',
     //     percent: 35,
     //     conns: 13,
     //     eta: '5m23s',
@@ -52,7 +53,10 @@ downloads = {
     // },
 }
 
-// downloads folder, set in setupListener() below
+// remove bottom bar when starting a new download
+chrome.downloads.setShelfEnabled(false)
+
+// downloads folder, set in setupDownListener() below
 let downloadsPath
 
 function addItem(url) {
@@ -86,20 +90,32 @@ function switchUpdates(to) {
     native.postMessage({type: 'info', info: to})
 }
 
-native.onMessage.addListener(message => {
-    if (message.type == 'info') {
+let handlers = {
+    info: message => {
         console.log("info")
         let ids = []
         for (let stat of message.stats || []) {
             ids.push(stat.id)
             let download = downloads[stat.id]
             download.percent = stat.percent
+            if (stat.rebuilding) {
+                download.state = S_REBUILDING
+                continue
+            }
+            download.written = stat.written
             download.conns = stat.conns
             download.eta = stat.eta
             download.speed = stat.speed
         }
-        chrome.extension.getViews({type: 'popup'})[0]?.update(ids)  // popup.addRow
-    } else if (message.type == "new") {
+        let popup = chrome.extension.getViews({type: 'popup'})[0]
+        if (popup) {
+            popup.update(ids)
+        } else {
+            switchUpdates(false)
+        }
+    },
+
+    new: message => {
         let download = {
             state: S_DOWNLOADING,
             url: message.url,
@@ -119,15 +135,21 @@ native.onMessage.addListener(message => {
             switchUpdates(true)
         }
         chrome.storage.local.set({downloads})
-    } else if (message.type == "pause") {
+    },
+
+    pause: message => {
         downloads[message.id].state = S_PAUSED
         chrome.extension.getViews({type: 'popup'})[0]?.update([message.id])  // popup.update
         chrome.storage.local.set({downloads})
-    } else if (message.type == "resume") {
+    },
+
+    resume: message => {
         downloads[message.id].state = S_DOWNLOADING
         chrome.extension.getViews({type: 'popup'})[0]?.update([message.id])  // popup.update
         chrome.storage.local.set({downloads})
-    } else if (message.type == "completed") {
+    },
+
+    completed: message => {
         downloads[message.id].state = S_COMPLETED
         chrome.extension.getViews({type: 'popup'})[0]?.update([message.id])  // popup.update
         let download = downloads[message.id]
@@ -140,20 +162,24 @@ native.onMessage.addListener(message => {
             switchUpdates(false)
         }
         chrome.storage.local.set({downloads})
-    } else if (message.type == "error") {
+    },
+
+    error: message => {
         console.error('DMan error: ', message.error)
-    } else {
+    },
+
+    default: message => {
         alert('Unknown message type:' + message.type)
     }
-});
+}
+
+native.onMessage.addListener(message => (handlers[message.type] || handlers.default)(message))
 
 // native.onDisconnect.addListener(() => {
 //     chrome.storage.local.set({downloads})
 // });
 
-chrome.downloads.setShelfEnabled(false)
-
-function setupListener(pingFilename) {
+function setupDownListener(pingFilename) {
     let pathSep = navigator.platform == 'Win32' ? '\\' : '/'
     downloadsPath = pingFilename.slice(0, pingFilename.lastIndexOf(pathSep))
     chrome.downloads.onCreated.addListener(item => {
@@ -170,7 +196,7 @@ function getFilename(item) {
         chrome.downloads.pause(item.id, () => {
             chrome.downloads.erase({id: item.id})
             chrome.downloads.onChanged.removeListener(getFilename)
-            setupListener(item.filename.current)
+            setupDownListener(item.filename.current)
         })
     }
 }
