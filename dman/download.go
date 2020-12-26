@@ -19,16 +19,16 @@ import (
 )
 
 const (
-	LEN_CHECK      = 1 << 16              // 64KB, data interval to check if connection should stop
+	KB             = 1024
+	MB             = KB * KB
+	GB             = MB * KB
+	LEN_CHECK      = 32 * KB              // data interval to check if connection should stop
 	MIN_CUT_ETA    = 5 * int(time.Second) // min ramaining time to split connection
 	STAT_INTERVAL  = 500 * time.Millisecond
 	LONG_TIME      = 3 * 24 * int(time.Hour) // 3 days, arbitrarily large duration
 	PART_DIR_NAME  = ".dman"
 	PROG_FILE_EXT  = ".dman"
 	SPEED_HIST_LEN = 10
-	KB             = 1024
-	MB             = KB * KB
-	GB             = MB * KB
 )
 
 type status struct {
@@ -133,6 +133,7 @@ func (conn *connection) download(body io.ReadCloser) {
 		conn.lock.Lock()
 		select {
 		case <-conn.stop:
+			conn.file.Close()
 			return
 		default:
 		}
@@ -267,7 +268,7 @@ func (down *Download) updateStatus() {
 					conns++
 				}
 			}
-			if down.emitStatus != nil {
+			if down.emitStatus != nil && len(down.emitStatus) == 0 {
 				// moving average speed
 				speedNow := (written - lastWritten) * int(time.Second) / duration
 				var speed int
@@ -496,6 +497,7 @@ func (down *Download) resume(progressFile string) error {
 	}
 	// add other conns
 	go down.startOthers()
+	os.Remove(progressFile)
 	return nil
 }
 
@@ -513,7 +515,7 @@ func newDownload(url string, maxConns int, id int, dir string) *Download {
 		dir: dir,
 		maxConns:   maxConns,
 		stop:       make(chan os.Signal),
-		emitStatus: make(chan status),
+		emitStatus: make(chan status, 1),  // buffered to bypass emitting if no consumer and continue updating, updateStatus()
 		stopStatus: make(chan bool),
 		stopAdd:    make(chan bool),
 		connDone:   make(chan *connection),
