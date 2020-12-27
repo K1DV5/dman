@@ -35,7 +35,6 @@ func standalone(url string, resume bool) {
 			fmt.Printf("\rResume error: %s\n", err.Error())
 			return
 		}
-		os.Remove(url)
 	} else {
 		fmt.Print("Starting...")
 		d.url = url
@@ -50,10 +49,9 @@ func standalone(url string, resume bool) {
 
 	// enable interrupt
 	signal.Notify(d.stop, os.Interrupt)
-	finished := d.wait()
+	err := d.wait()
 
-	if finished {
-		d.rebuild()
+	if err == nil {
 		fmt.Println("\rFinished", strings.Repeat(" ", 70))
 	} else {
 		fmt.Printf("\rPaused, saved progress to '%s/%s%s'.", PART_DIR_NAME, d.filename, PROG_FILE_EXT)

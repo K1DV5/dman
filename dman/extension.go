@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sync"
 	"strings"
+	"path/filepath"
 )
 
 var byteOrder = binary.LittleEndian // most likely
@@ -66,14 +67,9 @@ type downloads struct {
 
 func (downs *downloads) startNWait(down *Download) {
 	downs.collection[down.id] = down
-	finished := down.wait()
-	var err error
-	if finished {
-		err = down.rebuild()
-	} else {
-		err = down.saveProgress()
-	}
+	err := down.wait()
 	if err != nil {
+		err = down.saveProgress()
 		msg := message{
 			Type: "error",
 			Error: err.Error(),
@@ -83,7 +79,7 @@ func (downs *downloads) startNWait(down *Download) {
 	}
 	delete(downs.collection, down.id)
 	var msgType string
-	if finished {
+	if err == nil {
 		msgType = "completed"
 	} else {
 		msgType = "pause"
@@ -111,7 +107,7 @@ func (downs *downloads) addDownload() {
 			}
 		} else {
 			// resuming
-			if err := down.resume(down.url); err != nil { // set url & filename as well
+			if err := down.resume(filepath.Join(info.Dir, PART_DIR_NAME, info.Filename + PROG_FILE_EXT)); err != nil { // set url & filename as well
 				msg := message{
 					Type: "resume",
 					Id: info.Id,
@@ -125,7 +121,7 @@ func (downs *downloads) addDownload() {
 		go downs.startNWait(down)
 		size, unit := readableSize(down.length)
 		msg := message{
-			Type: "new",
+			Type: info.Type,
 			Id: info.Id,
 			Url: info.Url,
 			Filename: down.filename,
@@ -145,6 +141,16 @@ func (downs *downloads) pauseAll() {
 		}(down)
 	}
 	wg.Wait()
+	var stats []status
+	for id, _ := range downs.collection {
+		stats = append(stats, status{Id: id})
+		delete(downs.collection, id)
+	}
+	msg := message{
+		Type: "pause-all",
+		Stats: stats,
+	}
+	msg.send()
 }
 
 func (downs *downloads) sendInfo() {
@@ -205,7 +211,7 @@ func (downs *downloads) listen() {
 			downs.statSwitch <- msg.Info
 		} else if msg.Type == "pause" {
 			downs.collection[msg.Id].stop <- os.Interrupt
-		} else if msg.Type == "new" {
+		} else if msg.Type == "new" || msg.Type == "resume" {
 			downs.addChan <- msg
 		} else if msg.Type == "pause-all" {
 			downs.pauseAll()
