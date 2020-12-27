@@ -74,6 +74,7 @@ func readableSize(length int) (float64, string) {
 }
 
 type connection struct {
+	// length, received, eta mutable from outside
 	offset, length, received, eta int
 	stop                          chan bool
 	file                          *os.File
@@ -180,11 +181,24 @@ type Download struct {
 	headers     [][]string
 	filename    string
 	length      int
+	lock sync.Mutex
 	waitlist    *sync.WaitGroup
 	connDone    chan *connection
 	connections []*connection
 	stopAdd     chan bool
 	stop        chan os.Signal
+}
+
+func (down *Download) appendConn(conn *connection) {
+	down.lock.Lock()
+	down.connections = append(down.connections, conn)
+	down.lock.Unlock()
+}
+
+func (down *Download) getConns() []*connection {
+	defer down.lock.Unlock()
+	down.lock.Lock()
+	return down.connections
 }
 
 func (down *Download) addConn() error {
@@ -224,7 +238,7 @@ func (down *Download) addConn() error {
 	// shorten previous connection
 	longest.length -= newLen
 	// add this conn to the collection
-	down.connections = append(down.connections, newConn)
+	down.appendConn(newConn)
 	return nil
 }
 
@@ -242,7 +256,7 @@ func (down *Download) updateStatus() {
 			duration := int(now.Sub(lastTime))
 			lastTime = now
 			if rebuilding { // finished downloading, rebuilding
-				stat, _ := down.connections[0].file.Stat()
+				stat, _ := down.getConns()[0].file.Stat()
 				down.emitStatus <- status{
 					Id: down.id,
 					Rebuilding: true,
@@ -251,23 +265,31 @@ func (down *Download) updateStatus() {
 				continue
 			}
 			written, lastWritten, conns = 0, 0, 0
-			for i, conn := range down.connections {
+			var wg sync.WaitGroup
+			for i, conn := range down.getConns() {
 				if len(connLastReceived) == i {
 					connLastReceived = append(connLastReceived, 0)
 				}
-				speed := (conn.received - connLastReceived[i]) * int(time.Second) / duration
-				if speed == 0 {
-					conn.eta = LONG_TIME
-				} else {
-					conn.eta = (conn.length - conn.received) / speed // in seconds
-				}
-				lastWritten += connLastReceived[i]
-				connLastReceived[i] = conn.received
-				written += conn.received
-				if conn.received < conn.length {
-					conns++
-				}
+				wg.Add(1)
+				func(written *int, lastReceived *int, lastWritten *int, conns *int) {
+					conn.lock.Lock()
+					*written += conn.received
+					if conn.received < conn.length {
+						speed := (conn.received - *lastReceived) * int(time.Second) / duration
+						if speed == 0 {
+							conn.eta = LONG_TIME
+						} else {
+							conn.eta = (conn.length - conn.received) / speed // in seconds
+						}
+						*conns++
+					}
+					*lastWritten += *lastReceived
+					*lastReceived = conn.received
+					wg.Done()
+					conn.lock.Unlock()
+				}(&written, &connLastReceived[i], &lastWritten, &conns)
 			}
+			wg.Wait()
 			if down.emitStatus != nil && len(down.emitStatus) == 0 {
 				// moving average speed
 				speedNow := (written - lastWritten) * int(time.Second) / duration
@@ -314,7 +336,7 @@ func (down *Download) start() error {
 	// get filename
 	down.filename = getFilename(resp)
 	down.length = firstConn.length
-	down.connections = append(down.connections, &firstConn)
+	down.appendConn(&firstConn)
 	go down.updateStatus()
 	go down.startOthers()
 	return nil
@@ -326,7 +348,7 @@ func (down *Download) startOthers() {
 	if down.length < 0 { // unknown size, single connection
 		toAdd = 0
 	}
-	for _, conn := range down.connections {
+	for _, conn := range down.getConns() {
 		conn.lock.Lock()
 		if conn.received < conn.length {
 			toAdd--
@@ -380,7 +402,7 @@ func (down *Download) wait() bool {
 		// abort/pause
 		down.stopAdd <- true
 		wg := sync.WaitGroup{}
-		for _, conn := range down.connections {
+		for _, conn := range down.getConns() {
 			conn.lock.Lock()
 			if conn.received == conn.length { // finished
 				conn.lock.Unlock()
@@ -405,9 +427,11 @@ func (down *Download) wait() bool {
 
 func (down *Download) rebuild() error {
 	// sort by offset
+	down.lock.Lock()
 	sort.Slice(down.connections, func(i, j int) bool {
 		return down.connections[i].offset < down.connections[j].offset
 	})
+	down.lock.Unlock()
 	file := down.connections[0].file
 	if down.length < 0 { // unknown file size, single connection, length set at end
 		down.length = down.connections[0].length
@@ -492,7 +516,7 @@ func (down *Download) resume(progressFile string) error {
 			}
 			down.waitlist.Add(1)
 		}
-		down.connections = append(down.connections, &newConn)
+		down.appendConn(&newConn)
 		down.length += newConn.length
 	}
 	// add other conns
