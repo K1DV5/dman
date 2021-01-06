@@ -1,6 +1,6 @@
+// -{go run %f download.go extension.go setup.go ./.dman/gparted-live-1.0.0-5-i686.iso.dman}
 // -{go run %f download.go extension.go setup.go http://localhost/gparted-live-1.0.0-5-i686.iso}
 // -{go fmt %f}
-// -{go run %f download.go extension.go setup.go ./.dman/gparted-live-1.0.0-5-i686.iso.dman}
 // -{go install}
 
 package main
@@ -49,13 +49,14 @@ func standalone(url string, resume bool) {
 
 	// enable interrupt
 	signal.Notify(d.stop, os.Interrupt)
-	err := d.wait()
+	err := <-d.err
 
 	if err == nil {
 		fmt.Println("\rFinished", strings.Repeat(" ", 70))
-	} else {
+	} else if err == pausedError {
 		fmt.Printf("\rPaused, saved progress to '%s/%s%s'.", PART_DIR_NAME, d.filename, PROG_FILE_EXT)
-		d.saveProgress()
+	} else {
+		fmt.Print("\rFailed, err:", err)
 	}
 }
 
