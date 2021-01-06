@@ -7,9 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"os/exec"
 )
 
+// this is for windows
 const (
 	BIN = "dman.exe"
 	NAME = "com.k1dv5.dman"
@@ -47,7 +47,8 @@ func setup() error {
 		return err
 	}
 
-	cmd := exec.Command(
+	return execCmd("C:\\Windows\\System32\\cmd.exe", []string{
+		"/c",
 		"REG",
 		"ADD",
 		"HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\" + NAME,
@@ -57,12 +58,14 @@ func setup() error {
 		"/d",
 		manifestPath,
 		"/f",
-	)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	err = cmd.Run()
+	})
+}
+
+func execCmd(cmd string, args []string) error {
+	proc, err := os.StartProcess(cmd, args, &os.ProcAttr{Files: []*os.File{os.Stdin, os.Stdout, os.Stderr}})
 	if err != nil {
 		return err
 	}
+	proc.Wait()
 	return nil
 }
