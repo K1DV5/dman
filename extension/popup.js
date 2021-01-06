@@ -46,19 +46,19 @@ function addRow(data, id) {
             let [percent, written, speed, eta, conns] = info.children
             if (data.state == bg.S_DOWNLOADING) {  // downloading
                 progress.style.background = 'cyan'
-                percent.innerText = data.percent + '%'
+                percent.innerText = (Math.round(data.percent * 100) / 100) + '%'
                 written.innerText = data.written
                 speed.innerText = data.speed
                 eta.innerText = data.eta
                 conns.innerText = 'x' + data.conns
             } else if (data.state == bg.S_PAUSED) { // paused
                 progress.style.background = 'orange'
-                percent.innerText = data.percent + '%'
+                percent.innerText = (Math.round(data.percent * 100) / 100) + '%'
                 written.innerText = 'Paused'
             } else {  // 2, failed
                 progress.style.background = 'red'
-                percent.innerText = data.percent + '%'
-                written.innerText = 'Failed'
+                percent.innerText = (Math.round(data.percent * 100) / 100) + '%'
+                written.innerText = data.error
             }
         }
     }
@@ -71,7 +71,7 @@ function addRow(data, id) {
     row.appendChild(datePart)
     datePart.innerText = data.date
 
-    row.addEventListener('focus', () => lastFocusId = id)
+    row.addEventListener('focus', () => lastFocusId = Number(id))
 }
 
 for (let [id, info] of Object.entries(bg.downloads).sort((a, b) => a[1].state < b[1].state ? 1 : -1)) {
@@ -89,6 +89,7 @@ function update(ids) {
         let item = document.getElementById(id)
         if (info.state == bg.S_DOWNLOADING) {  // downloading
             let [_, progress, infoElm] = item.firstElementChild.children
+            progress.style.background = 'cyan'
             progress.style.width = info.percent + '%'
             let [percent, written, speed, eta, conns] = infoElm.children
             percent.innerText = (Math.round(info.percent * 100) / 100) + '%'
@@ -98,9 +99,9 @@ function update(ids) {
             eta.innerText = info.eta
         } else if (info.state == bg.S_PAUSED) {  // paused
             let [_, progress, infoElm] = item.firstElementChild.children
-            progress.style.background = 'yellow'
+            progress.style.background = 'orange'
             let [percent, written, speed, eta, conns] = infoElm.children
-            percent.innerText = info.percent + '%'
+            percent.innerText = (Math.round(info.percent * 100) / 100) + '%'
             written.innerText = info.written
             speed.innerText = 'Paused'
             conns.innerText = ''
@@ -109,15 +110,15 @@ function update(ids) {
             let [_, progress, infoElm] = item.firstElementChild.children
             progress.style.background = 'red'
             let [percent, written, speed, eta, conns] = infoElm.children
-            percent.innerText = info.percent + '%'
-            written.innerText = info.written
-            speed.innerText = 'Failed'
-            conns.innerText = info.error
+            percent.innerText = (Math.round(info.percent * 100) / 100) + '%'
+            written.innerText = info.error
+            speed.innerText = ''
+            conns.innerText = ''
             eta.innerText = ''
         } else if (info.state == bg.S_REBUILDING) {  // rebuilding
             let [_, progress, infoElm] = item.firstElementChild.children
             progress.style.background = 'lightgreen'
-            progress.style.width = info.percent + '%'
+            progress.style.width = (Math.round(info.percent * 100) / 100) + '%'
             infoElm.innerHTML = 'Rebuilding'
         } else {  // 4, completed
             item.firstElementChild.innerHTML = info.filename
@@ -149,5 +150,17 @@ function remove(event) {
     item.remove()
     lastFocusId = undefined
 }
-
 document.getElementById('remove').addEventListener('click', remove)
+
+function pauseResume(event) {
+    event.preventDefault()
+    if (document.getElementById(lastFocusId) == null) return
+    let stateTo = event.target.id == 'pause' ? bg.S_PAUSED : bg.S_DOWNLOADING
+    bg.changeState(lastFocusId, stateTo)
+}
+document.getElementById('pause').addEventListener('click', pauseResume)
+document.getElementById('pause-all').addEventListener('click', () => {
+    event.preventDefault()
+    bg.pauseAll()
+})
+document.getElementById('resume').addEventListener('click', pauseResume)

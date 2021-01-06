@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"os"
 	"fmt"
-	"sync"
 	"strings"
 	"path/filepath"
 )
@@ -67,26 +66,16 @@ type downloads struct {
 
 func (downs *downloads) startNWait(down *Download) {
 	downs.collection[down.id] = down
-	err := down.wait()
-	if err != nil {
-		err = down.saveProgress()
-		msg := message{
-			Type: "error",
-			Error: err.Error(),
-		}
-		msg.send()
-		return
-	}
+	err := <-down.err
 	delete(downs.collection, down.id)
-	var msgType string
+	msg := message{Id: down.id}
 	if err == nil {
-		msgType = "completed"
+		msg.Type = "completed"
+	} else if err == pausedError {
+		msg.Type = "pause"
 	} else {
-		msgType = "pause"
-	}
-	msg := message{
-		Type: msgType,
-		Id: down.id,
+		msg.Type = "failed"
+		msg.Error = err.Error()
 	}
 	msg.send()
 }
@@ -119,30 +108,35 @@ func (downs *downloads) addDownload() {
 			os.Remove(down.url)
 		}
 		go downs.startNWait(down)
-		size, unit := readableSize(down.length)
+		var size string
+		if down.length > 0 {
+			sizeVal, unit := readableSize(down.length)
+			size = fmt.Sprintf("%.2f%s", sizeVal, unit)
+		} else {
+			size = "Unknown"
+		}
 		msg := message{
 			Type: info.Type,
 			Id: info.Id,
 			Url: info.Url,
 			Filename: down.filename,
-			Size: fmt.Sprintf("%.2f%s", size, unit),
+			Size: size,
 		}
 		msg.send()
 	}
 }
 
 func (downs *downloads) pauseAll() {
-	wg := sync.WaitGroup{}
+	wait := make(chan int)
 	for _, down := range downs.collection {
-		wg.Add(1)
 		go func(down *Download) {
 			down.stop <- os.Interrupt
-			wg.Done()
+			wait <- down.id
 		}(down)
 	}
-	wg.Wait()
 	var stats []status
-	for id, _ := range downs.collection {
+	for i := 0; i < len(downs.collection); i++ {
+		id := <- wait
 		stats = append(stats, status{Id: id})
 		delete(downs.collection, id)
 	}
@@ -211,6 +205,7 @@ func (downs *downloads) listen() {
 			downs.statSwitch <- msg.Info
 		} else if msg.Type == "pause" {
 			downs.collection[msg.Id].stop <- os.Interrupt
+			delete(downs.collection, msg.Id)
 		} else if msg.Type == "new" || msg.Type == "resume" {
 			downs.addChan <- msg
 		} else if msg.Type == "pause-all" {

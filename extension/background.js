@@ -34,7 +34,8 @@ downloads = {
     //     filename: 'foo',
     //     percent: 70,
     //     size: '23.1MB',
-    //     date: '12/16/2020'
+    //     date: '12/16/2020',
+    //     error: "Foo bar"
     // },
     // 4: {
     //     state: S_REBUILDING,  // rebuilding
@@ -76,23 +77,35 @@ function changeState(id, to) {
     if (info.state == S_DOWNLOADING) {  // downloading
         if (to != S_PAUSED) return
         // pause
-        native.postMessage({type: 'stop', id})
+        native.postMessage({id, type: 'pause', id})
     } else if (to == null) {  // delete
-        native.postMessage({type: 'delete', filename: info.filename})
+        native.postMessage({id, type: 'delete', filename: info.filename, dir: downloadsPath})
     } else {  // paused / failed
         if (to != S_DOWNLOADING) return
         // resume
-        native.postMessage({type: 'resume', filename: info.filename})
+        native.postMessage({id, type: 'resume', filename: info.filename, dir: downloadsPath})
     }
+}
+
+function pauseAll() {
+    native.postMessage({type: 'pause-all'})
 }
 
 function switchUpdates(to) {
     native.postMessage({type: 'info', info: to})
 }
 
+// states indicating in progress
+let progStates = [S_DOWNLOADING, S_REBUILDING]
+
+function updateBadge() {
+    let downs = Object.values(downloads).filter(d => progStates.includes(d.state)).length
+    chrome.browserAction.setBadgeText({text: String(downs || '')})
+}
+updateBadge()
+
 let handlers = {
     info: message => {
-        console.log("info")
         let ids = []
         for (let stat of message.stats || []) {
             ids.push(stat.id)
@@ -103,7 +116,7 @@ let handlers = {
                 continue
             }
             download.written = stat.written
-            download.conns = stat.conns
+            download.conns = stat.conns || 0
             download.eta = stat.eta
             download.speed = stat.speed
         }
@@ -143,21 +156,44 @@ let handlers = {
         chrome.storage.local.set({downloads})
     },
 
-    resume: message => {
-        downloads[message.id].state = S_DOWNLOADING
+    failed: message => {
+        downloads[message.id].state = S_FAILED
+        downloads[message.id].error = message.error
         chrome.extension.getViews({type: 'popup'})[0]?.update([message.id])  // popup.update
         chrome.storage.local.set({downloads})
     },
 
+    'pause-all': message => {
+        let ids = []
+        for (let stat of message.stats) {
+            downloads[stat.id].state = S_PAUSED
+            ids.push(stat.id)
+        }
+        chrome.extension.getViews({type: 'popup'})[0]?.update(ids)  // popup.update
+        chrome.storage.local.set({downloads})
+    },
+
+    resume: message => {
+        downloads[message.id].state = S_DOWNLOADING
+        let popup = chrome.extension.getViews({type: 'popup'})[0]
+        if (popup) {
+            popup.update([message.id])  // popup.update
+            switchUpdates(true)
+        }
+        chrome.storage.local.set({downloads})
+    },
+
     completed: message => {
-        downloads[message.id].state = S_COMPLETED
-        chrome.extension.getViews({type: 'popup'})[0]?.update([message.id])  // popup.update
         let download = downloads[message.id]
-        delete download.percent
-        delete download.conns
-        delete download.speed
-        delete download.eta
-        let progStates = [S_DOWNLOADING, S_REBUILDING]
+        download.state = S_COMPLETED
+        if (!download.length && message.length) {
+            download.length = message.length
+        }
+        updateBadge()
+        chrome.extension.getViews({type: 'popup'})[0]?.update([message.id])  // popup.update
+        for (let stat of ['percent', 'written', 'speed', 'eta', 'conns']) {
+            delete download[stat]
+        }
         if (Object.values(downloads).filter(d => progStates.includes(d.state)).length == 0) {
             switchUpdates(false)
         }
@@ -173,7 +209,12 @@ let handlers = {
     }
 }
 
-native.onMessage.addListener(message => (handlers[message.type] || handlers.default)(message))
+native.onMessage.addListener(message => {
+    (handlers[message.type] || handlers.default)(message)
+    if (message.type != 'info') {
+        updateBadge()
+    }
+})
 
 // native.onDisconnect.addListener(() => {
 //     chrome.storage.local.set({downloads})
@@ -184,7 +225,7 @@ function setupDownListener(pingFilename) {
     downloadsPath = pingFilename.slice(0, pingFilename.lastIndexOf(pathSep))
     chrome.downloads.onCreated.addListener(item => {
         chrome.downloads.pause(item.id, () => {
-            addItem(item.url)
+            addItem(item.finalUrl)
             chrome.downloads.erase({id: item.id})
         })
     })
