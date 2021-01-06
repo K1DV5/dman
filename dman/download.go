@@ -262,6 +262,7 @@ func (down *Download) coordinate() {
 	var rebuilding bool
 	addingJobLock := true
 	if down.maxConns > 1 {
+		// add other conns
 		down.addJob()
 	}
 	for {
@@ -274,8 +275,12 @@ func (down *Download) coordinate() {
 			delete(down.jobs, job.offset)
 			down.jobsDone = append(down.jobsDone, job)
 			close(job.msg)
+			failed := job.err != nil && job.err != pausedError
+			if failed {
+				mainError = job.err
+			}
 			if len(down.jobs) == 0 {
-				if job.err != nil {
+				if job.err != nil && mainError == nil {
 					mainError = job.err
 				}
 				if mainError != nil { // finished pausing or failing
@@ -286,8 +291,7 @@ func (down *Download) coordinate() {
 				// finished downloading, start rebuilding
 				down.rebuild()
 				rebuilding = true
-			} else if job.err != nil && job.err != pausedError { // failed
-				mainError = job.err
+			} else if failed { // failed
 				for _, job := range down.jobs { // start pausing others
 					job.msg <- jobMsg{order: O_STOP}
 				}
@@ -332,15 +336,13 @@ func (down *Download) coordinate() {
 				addingJobLock = false
 			}
 		case <-down.stop:
-			fmt.Println("stop")
 			if rebuilding {
 				continue
 			}
 			if addingJobLock {
 				jobs := <-down.insertJob
-				fmt.Println(jobs[0].offset)
-				fmt.Println(jobs[0].file.Close())
-				fmt.Println(os.Remove(jobs[0].file.Name()))
+				jobs[0].file.Close()
+				os.Remove(jobs[0].file.Name())
 			} else {
 				addingJobLock = true
 			}
@@ -421,6 +423,7 @@ func (down *Download) download(job *downJob) {
 		if err != nil {
 			job.received += int(wrote)
 			if err == io.EOF {
+				// unknown length, now known
 				job.length = job.received
 			} else {
 				job.err = err
@@ -544,7 +547,6 @@ func (down *Download) resume(progressFile string) error {
 		go down.download(job)
 	}
 	go down.coordinate()
-	// add other conns
 	os.Remove(progressFile)
 	return nil
 }
