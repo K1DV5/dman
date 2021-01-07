@@ -159,13 +159,6 @@ func (down *Download) getResponse(job *downJob) (*http.Response, error) {
 	}
 	job.body = resp.Body
 	job.msg = make(chan jobMsg, 2)  // for stat and params
-	if job.file == nil { // new, not resuming
-		file, err := os.Create(filepath.Join(down.dir, PART_DIR_NAME, getFilename(resp)+"."+strconv.Itoa(job.offset)))
-		if err != nil {
-			return nil, err
-		}
-		job.file = file
-	}
 	return resp, nil
 }
 
@@ -237,6 +230,11 @@ func (down *Download) addJob() error {
 		offset: longestParams.offset + longestParams.length - newLen,
 		length: newLen,
 	}
+	file, err := os.Create(filepath.Join(down.dir, PART_DIR_NAME, down.filename+"."+strconv.Itoa(newJob.offset)))
+	if err != nil {
+		return err
+	}
+	newJob.file = file
 	go func() {
 		_, err := down.getResponse(newJob)
 		if err != nil {
@@ -454,6 +452,11 @@ func (down *Download) start() error {
 	}
 	// get filename
 	down.filename = getFilename(resp)
+	file, err := os.Create(filepath.Join(down.dir, PART_DIR_NAME, down.filename+".0"))
+	if err != nil {
+		return err
+	}
+	firstJob.file = file
 	down.length = firstJob.length
 	down.jobs[0] = firstJob
 	if down.length > 0 {  // if the length is known, begin adding more connections
@@ -478,6 +481,10 @@ func (down *Download) rebuild() {
 			down.length = down.jobsDone[0].length
 		}
 		for _, job := range down.jobsDone[1:] {
+			if job.file == nil {
+				fmt.Println(job)
+				continue
+			}
 			if _, err = job.file.Seek(0, 0); err != nil {return}
 			if _, err = io.Copy(file, job.file); err != nil {return}
 			if err = job.file.Close(); err != nil {return}
@@ -512,7 +519,14 @@ func (down *Download) saveProgress() error {
 	return nil
 }
 
-func (down *Download) resume(progressFile string) error {
+func (down *Download) resume(progressFile string) (err error) {
+	defer func() {
+		if err != nil {
+			for _, job := range down.jobs {
+				job.file.Close()
+			}
+		}
+	}()
 	var prog progress
 	f, err := os.Open(progressFile)
 	if err != nil {return err}
@@ -523,25 +537,38 @@ func (down *Download) resume(progressFile string) error {
 	down.dir = filepath.Dir(filepath.Dir(progressFile))
 	down.filename = prog.Filename
 	for _, job := range prog.Parts {
-		fname := filepath.Join(down.dir, PART_DIR_NAME, down.filename+"."+strconv.Itoa(job["offset"]))
-		file, err := os.OpenFile(fname, os.O_APPEND, 755)
-		if err != nil {
-			return err
-		}
 		newJob := &downJob{
 			offset:   job["offset"],
 			length:   job["length"],
 			received: job["received"],
-			file:     file,
 		}
+		fname := filepath.Join(down.dir, PART_DIR_NAME, down.filename+"."+strconv.Itoa(newJob.offset))
+		file, err := os.OpenFile(fname, os.O_APPEND, 755)
+		if err != nil {
+			return err
+		}
+		newJob.file = file
 		if newJob.received < newJob.length { // unfinished
-			if _, err := down.getResponse(newJob); err != nil {return err}
-			newJob.msg = make(chan jobMsg)
 			down.jobs[newJob.offset] = newJob
 		} else {
 			down.jobsDone = append(down.jobsDone, newJob)
 		}
 		down.length += newJob.length
+	}
+	// make requests
+	requestErr := make(chan error)
+	request := func(job *downJob) {
+		_, err := down.getResponse(job)
+		requestErr <- err
+	}
+	for _, job := range down.jobs {
+		go request(job)
+	}
+	// check requests errors
+	for i := 0; i < len(down.jobs); i++ {
+		if err := <-requestErr; err != nil {
+			return err
+		}
 	}
 	for _, job := range down.jobs {
 		go down.download(job)
