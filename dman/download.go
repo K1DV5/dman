@@ -230,11 +230,6 @@ func (down *Download) addJob() error {
 		offset: longestParams.offset + longestParams.length - newLen,
 		length: newLen,
 	}
-	file, err := os.Create(filepath.Join(down.dir, PART_DIR_NAME, down.filename+"."+strconv.Itoa(newJob.offset)))
-	if err != nil {
-		return err
-	}
-	newJob.file = file
 	go func() {
 		_, err := down.getResponse(newJob)
 		if err != nil {
@@ -257,11 +252,10 @@ func (down *Download) coordinate() {
 	timer := time.NewTimer(STAT_INTERVAL)
 	updateStat := down.updateStatus()
 	var mainError error
-	var rebuilding bool
-	addingJobLock := true
+	var rebuilding, addingJobLock bool
 	if down.maxConns > 1 {
 		// add other conns
-		down.addJob()
+		addingJobLock = down.addJob() == nil
 	}
 	for {
 		select {
@@ -278,7 +272,11 @@ func (down *Download) coordinate() {
 				mainError = job.err
 			}
 			if len(down.jobs) == 0 {
-				if job.err != nil && mainError == nil {
+				if addingJobLock {
+					// flush the new one
+					<-down.insertJob
+				}
+				if job.err != nil && mainError == nil {  // no previous errors
 					mainError = job.err
 				}
 				if mainError != nil { // finished pausing or failing
@@ -319,14 +317,18 @@ func (down *Download) coordinate() {
 		case jobs := <-down.insertJob:
 			job, longest := jobs[0], jobs[1]
 			if down.jobs[longest.offset] != nil && job.err == nil { // still in progress
-				// add this job to the collection
-				down.jobs[job.offset] = job
-				// subtract length
-				longest.msg <- jobMsg{
-					order:  O_LENGTH,
-					length: job.length,
+				file, err := os.Create(filepath.Join(down.dir, PART_DIR_NAME, down.filename+"."+strconv.Itoa(job.offset)))
+				if err == nil {
+					job.file = file
+					// add this job to the collection
+					down.jobs[job.offset] = job
+					// subtract length
+					longest.msg <- jobMsg{
+						order:  O_LENGTH,
+						length: job.length,
+					}
+					go down.download(job)
 				}
-				go down.download(job)
 			}
 			if len(down.jobs) < down.maxConns {
 				addingJobLock = down.addJob() == nil
@@ -336,13 +338,6 @@ func (down *Download) coordinate() {
 		case <-down.stop:
 			if rebuilding {
 				continue
-			}
-			if addingJobLock {
-				jobs := <-down.insertJob
-				jobs[0].file.Close()
-				os.Remove(jobs[0].file.Name())
-			} else {
-				addingJobLock = true
 			}
 			for _, job := range down.jobs { // start pausing
 				job.msg <- jobMsg{order: O_STOP}
