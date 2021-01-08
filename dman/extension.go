@@ -7,8 +7,8 @@ import (
 	"encoding/json"
 	"os"
 	"fmt"
-	"strings"
 	"path/filepath"
+	"time"
 )
 
 var byteOrder = binary.LittleEndian // most likely
@@ -58,162 +58,154 @@ func (msg *message) send() error {
 	return nil
 }
 
+type completedInfo struct {
+	down *Download
+	err error
+}
+
 type downloads struct {
 	collection map[int]*Download
 	addChan chan message
-	statSwitch chan bool
-}
-
-func (downs *downloads) startNWait(down *Download) {
-	downs.collection[down.id] = down
-	err := <-down.err
-	delete(downs.collection, down.id)
-	msg := message{Id: down.id}
-	if err == nil {
-		msg.Type = "completed"
-	} else if err == pausedError {
-		msg.Type = "pause"
-	} else {
-		msg.Type = "failed"
-		msg.Error = err.Error()
-	}
-	msg.send()
+	message chan message
+	insertDown chan *Download
 }
 
 func (downs *downloads) addDownload() {
 	for info := range downs.addChan {
 		down := newDownload(info.Url, info.Conns, info.Id, info.Dir)
-		if strings.HasPrefix(down.url, "http://") || strings.HasPrefix(down.url, "https://") {
-			// new download
-			if err := down.start(); err != nil { // set filename as well
-				msg := message{
-					Type: "new",
-					Id: info.Id,
-					Error: err.Error(),
-				}
-				msg.send()
-				continue
-			}
-		} else {
-			// resuming
-			if err := down.resume(filepath.Join(info.Dir, PART_DIR_NAME, info.Filename + PROG_FILE_EXT)); err != nil { // set url & filename as well
-				msg := message{
-					Type: "resume",
-					Id: info.Id,
-					Error: err.Error(),
-				}
-				msg.send()
-				continue
-			}
-			os.Remove(down.url)
-		}
-		go downs.startNWait(down)
-		var size string
-		if down.length > 0 {
-			sizeVal, unit := readableSize(down.length)
-			size = fmt.Sprintf("%.2f%s", sizeVal, unit)
-		} else {
-			size = "Unknown"
-		}
 		msg := message{
-			Type: info.Type,
+			Type: "new",
 			Id: info.Id,
-			Url: info.Url,
-			Filename: down.filename,
-			Size: size,
 		}
-		msg.send()
+		var err error
+		if info.Url == "" {
+			// resuming, set url & filename as well
+			err = down.resume(filepath.Join(info.Dir, PART_DIR_NAME, info.Filename + PROG_FILE_EXT))
+		} else {
+			// new download, set filename as well
+			err = down.start()
+		}
+		if err != nil {
+			msg.Error = err.Error()
+			msg.send()
+			continue
+		}
+		downs.insertDown <- down
 	}
 }
 
-func (downs *downloads) pauseAll() {
-	wait := make(chan int)
-	for _, down := range downs.collection {
-		go func(down *Download) {
-			down.stop <- os.Interrupt
-			wait <- down.id
-		}(down)
-	}
+func (downs *downloads) sendInfo() bool {
 	var stats []status
-	for i := 0; i < len(downs.collection); i++ {
-		id := <- wait
-		stats = append(stats, status{Id: id})
-		delete(downs.collection, id)
+	for _, down := range downs.collection {
+		// get only the available stats, to not block
+		select {
+		case stat, ok := <-down.emitStatus:
+			if ok {
+				stats = append(stats, stat)
+			}
+		default:
+			continue
+		}
 	}
 	msg := message{
-		Type: "pause-all",
+		Type: "info",
 		Stats: stats,
 	}
 	msg.send()
-}
-
-func (downs *downloads) sendInfo() {
-	var sending bool
-	for {
-		select {
-		case send, ok := <- downs.statSwitch:
-			if !ok {
-				break
-			}
-			sending = send
-		default:
-		}
-		if sending {
-			var stats []status
-			for _, down := range downs.collection {
-				stat, ok := <-down.emitStatus
-				if !ok {
-					continue
-				}
-				stats = append(stats, stat)
-			}
-			if len(stats) == 0 {
-				msg := message{
-					Type: "info",
-				}
-				msg.send()
-				sending = <- downs.statSwitch
-				continue
-			}
-			msg := message{
-				Type: "info",
-				Stats: stats,
-			}
-			msg.send()
-		} else {
-			sending = <- downs.statSwitch
-		}
+	if len(stats) > 0 || len(downs.collection) > 0 {
+		return true
 	}
+	return false
 }
 
 func (downs *downloads) listen() {
-	go downs.addDownload()
-	go downs.sendInfo()
+	go downs.coordinate()
 	for {
 		var msg message
-		if err := msg.get(); err != nil {
-			downs.pauseAll()
-			msg := message{
-				Type: "error",
-				Error: err.Error(),
-			}
-			msg.send()
+		if err := msg.get(); err != nil {  // shutdown
+			close(downs.message)
 			return
 		}
-		// send to workers
-		if msg.Type == "info" {
-			downs.statSwitch <- msg.Info
-		} else if msg.Type == "pause" {
-			downs.collection[msg.Id].stop <- os.Interrupt
-			delete(downs.collection, msg.Id)
-		} else if msg.Type == "new" || msg.Type == "resume" {
-			downs.addChan <- msg
-		} else if msg.Type == "pause-all" {
-			downs.pauseAll()
-		} else {
+		downs.message <- msg
+	}
+}
+
+func (downs *downloads) coordinate() {
+	defer close(downs.addChan)
+	go downs.addDownload()
+	timer := time.NewTimer(STAT_INTERVAL)
+	defer timer.Stop()
+	var sendingInfo bool
+	completed := make(chan completedInfo)
+	defer close(completed)
+	for {
+		select {
+		case msg, ok := <-downs.message:
+			if !ok {return}
+			switch msg.Type {
+			case "info":
+				sendingInfo = msg.Info
+				if sendingInfo {
+					timer.Reset(STAT_INTERVAL)
+				}
+			case "pause":
+				downs.collection[msg.Id].stop <- os.Interrupt
+			case "new":
+				downs.addChan <- msg
+			case "pause-all":
+				pause := func(down *Download) {
+					down.stop <- os.Interrupt
+				}
+				for _, down := range downs.collection {
+					go pause(down)
+				}
+			default:
+				msg := message{
+					Type: "error",
+					Error: "Message type not recognized",
+				}
+				msg.send()
+			}
+		case <-timer.C:
+			if !sendingInfo {
+				continue
+			}
+			if downs.sendInfo() {
+				timer.Reset(STAT_INTERVAL)
+			} else {
+				sendingInfo = false
+			}
+		case down := <-downs.insertDown:
+			downs.collection[down.id] = down
+			go func() {
+				err := <-down.err
+				completed <- completedInfo{down: down, err: err}
+			}()
+			var size string
+			if down.length > 0 {
+				sizeVal, unit := readableSize(down.length)
+				size = fmt.Sprintf("%.2f%s", sizeVal, unit)
+			} else {
+				size = "Unknown"
+			}
 			msg := message{
-				Type: "error",
-				Error: "Message type not recognized",
+				Type: "new",
+				Id: down.id,
+				Url: down.url,
+				Filename: down.filename,
+				Size: size,
+			}
+			msg.send()
+		case info := <-completed:
+			delete(downs.collection, info.down.id)
+			msg := message{Id: info.down.id}
+			if info.err == nil {
+				msg.Type = "completed"
+			} else if info.err == pausedError {
+				msg.Type = "pause"
+			} else {
+				msg.Type = "failed"
+				msg.Error = info.err.Error()
 			}
 			msg.send()
 		}
@@ -222,9 +214,10 @@ func (downs *downloads) listen() {
 
 func extension() {
 	downs := downloads{
-		addChan: make(chan message),
-		statSwitch: make(chan bool),
+		addChan: make(chan message, 10),
 		collection: map[int]*Download{},
+		message: make(chan message),
+		insertDown: make(chan *Download),
 	}
 	downs.listen()
 }

@@ -83,7 +83,7 @@ function changeState(id, to) {
     } else {  // paused / failed
         if (to != S_DOWNLOADING) return
         // resume
-        native.postMessage({id, type: 'resume', filename: info.filename, dir: downloadsPath})
+        native.postMessage({id, type: 'new', filename: info.filename, dir: downloadsPath})
     }
 }
 
@@ -129,23 +129,34 @@ let handlers = {
     },
 
     new: message => {
-        let download = {
-            state: S_DOWNLOADING,
-            url: message.url,
-            filename: message.filename,
-            size: message.size,
-            percent: 0,
-            conns: 0,
-            speed: '...',
-            eta: '...',
-            date: new Date().toLocaleDateString(),
+        if (message.error) {
+            return alert(message.error)
         }
-        downloads[message.id] = download
-        // ? because the popup may be closed now
         let popup = chrome.extension.getViews({type: 'popup'})[0]
-        if (popup) {
-            popup.addRow(download, message.id)  // popup.addRow
-            switchUpdates(true)
+        if (downloads[message.id] == undefined) {  // new download
+            let download = {
+                state: S_DOWNLOADING,
+                url: message.url,
+                filename: message.filename,
+                size: message.size,
+                percent: 0,
+                written: '...',
+                conns: 0,
+                speed: '...',
+                eta: '...',
+                date: new Date().toLocaleDateString(),
+            }
+            downloads[message.id] = download
+            if (popup) {
+                popup.addRow(download, message.id)  // popup.addRow
+                switchUpdates(true)
+            }
+        } else {  // resuming
+            downloads[message.id].state = S_DOWNLOADING
+            if (popup) {
+                popup.update([message.id])  // popup.addRow
+                switchUpdates(true)
+            }
         }
         chrome.storage.local.set({downloads})
     },
@@ -170,16 +181,6 @@ let handlers = {
             ids.push(stat.id)
         }
         chrome.extension.getViews({type: 'popup'})[0]?.update(ids)  // popup.update
-        chrome.storage.local.set({downloads})
-    },
-
-    resume: message => {
-        downloads[message.id].state = S_DOWNLOADING
-        let popup = chrome.extension.getViews({type: 'popup'})[0]
-        if (popup) {
-            popup.update([message.id])  // popup.update
-            switchUpdates(true)
-        }
         chrome.storage.local.set({downloads})
     },
 
