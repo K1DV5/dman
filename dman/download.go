@@ -28,11 +28,11 @@ const (
 	PROG_FILE_EXT  = ".dman"
 	MOVING_AVG_LEN = 3
 	// message order types
-	O_STAT = 0
-	O_PARAMS = 1
-	O_LENGTH = 2
+	O_STAT         = 0
+	O_PARAMS       = 1
+	O_LENGTH       = 2
 	O_COMP_PHOLDER = -1
-	O_STOP = -2
+	O_STOP         = -2
 )
 
 var (
@@ -158,7 +158,7 @@ func (down *Download) getResponse(job *downJob) (*http.Response, error) {
 		}
 	}
 	job.body = resp.Body
-	job.msg = make(chan jobMsg, 2)  // for stat and params
+	job.msg = make(chan jobMsg, 2) // for stat and params
 	return resp, nil
 }
 
@@ -276,7 +276,7 @@ func (down *Download) coordinate() {
 					// flush the new one
 					<-down.insertJob
 				}
-				if job.err != nil && mainError == nil {  // no previous errors
+				if job.err != nil && mainError == nil { // no previous errors
 					mainError = job.err
 				}
 				if mainError != nil { // finished pausing or failing
@@ -374,12 +374,12 @@ func (down *Download) handleMsg(job *downJob) func(jobMsg) {
 			eta = eta * (job.length - msg.length - job.received) / (job.length - job.received)
 			job.length -= msg.length
 		} else if msg.order == O_COMP_PHOLDER && msg.offset != O_STOP {
-		    // just until over message is accepted, stat or params
+			// just until over message is accepted, stat or params
 			if msg.offset > 1 {
 				return
 			}
 			overDestChans[msg.offset] <- toSend
-		} else {  // pause ordered
+		} else { // pause ordered
 			if job.received == job.length {
 				return
 			}
@@ -392,7 +392,8 @@ func (down *Download) handleMsg(job *downJob) func(jobMsg) {
 func (down *Download) download(job *downJob) {
 	defer job.body.Close()
 	handleMsg := down.handleMsg(job)
-	downLoop: for {
+downLoop:
+	for {
 		select {
 		case msg := <-job.msg:
 			handleMsg(msg)
@@ -454,7 +455,7 @@ func (down *Download) start() error {
 	firstJob.file = file
 	down.length = firstJob.length
 	down.jobs[0] = firstJob
-	if down.length > 0 {  // if the length is known, begin adding more connections
+	if down.length > 0 { // if the length is known, begin adding more connections
 		go down.download(firstJob)
 	}
 	go down.coordinate()
@@ -477,24 +478,35 @@ func (down *Download) rebuild() {
 		}
 		for _, job := range down.jobsDone[1:] {
 			if job.file == nil {
-				fmt.Println(job)
 				continue
 			}
-			if _, err = job.file.Seek(0, 0); err != nil {return}
-			if _, err = io.Copy(file, job.file); err != nil {return}
-			if err = job.file.Close(); err != nil {return}
-			if err = os.Remove(job.file.Name()); err != nil {return}
+			if _, err = job.file.Seek(0, 0); err != nil {
+				return
+			}
+			if _, err = io.Copy(file, job.file); err != nil {
+				return
+			}
+			if err = job.file.Close(); err != nil {
+				return
+			}
+			if err = os.Remove(job.file.Name()); err != nil {
+				return
+			}
 		}
-		if err = file.Close(); err != nil {return}
-		if err = os.Rename(file.Name(), filepath.Join(down.dir, down.filename)); err != nil {return}
+		if err = file.Close(); err != nil {
+			return
+		}
+		if err = os.Rename(file.Name(), filepath.Join(down.dir, down.filename)); err != nil {
+			return
+		}
 		os.Remove(filepath.Dir(file.Name())) // only if empty
 	}()
 }
 
 func (down *Download) saveProgress() error {
 	prog := progress{
-		Id: down.id,
-		Url: down.url,
+		Id:       down.id,
+		Url:      down.url,
 		Filename: down.filename,
 	}
 	for _, job := range down.jobsDone {
@@ -524,8 +536,12 @@ func (down *Download) resume(progressFile string) (err error) {
 	}()
 	var prog progress
 	f, err := os.Open(progressFile)
-	if err != nil {return err}
-	if err := json.NewDecoder(f).Decode(&prog); err != nil {return err}
+	if err != nil {
+		return err
+	}
+	if err := json.NewDecoder(f).Decode(&prog); err != nil {
+		return err
+	}
 	f.Close()
 	down.id = prog.Id
 	down.url = prog.Url
@@ -574,7 +590,7 @@ func (down *Download) resume(progressFile string) (err error) {
 }
 
 type progress struct {
-	Id int `json:"id"`
+	Id       int              `json:"id"`
 	Url      string           `json:"url"`
 	Filename string           `json:"filename"`
 	Parts    []map[string]int `json:"parts"`
@@ -582,7 +598,7 @@ type progress struct {
 
 func newDownload(url string, maxConns int, id int, dir string) *Download {
 	down := Download{
-		id: id,
+		id:         id,
 		url:        url,
 		dir:        dir,
 		maxConns:   maxConns,

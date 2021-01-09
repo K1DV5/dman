@@ -1,12 +1,11 @@
 // -{go install}
-// -{go fmt %f}
 package main
 
 import (
 	"encoding/binary"
 	"encoding/json"
-	"os"
 	"fmt"
+	"os"
 	"path/filepath"
 	"time"
 )
@@ -16,16 +15,16 @@ var byteOrder = binary.LittleEndian // most likely
 type message struct {
 	// Incoming types: new, pause, pause-all, resume, info
 	// Outgoing types: new, pause, pause-all, resume, info, completed, error
-	Type     string `json:"type"`
-	Url      string `json:"url,omitempty"`
-	Id       int `json:"id,omitempty"`
-	Filename string `json:"filename,omitempty"`
-	Size 		string  `json:"size,omitempty"`
-	Conns int `json:"conns,omitempty"`
-	Stats []status `json:"stats,omitempty"`
-	Info 	bool `json:"info,omitempty"`
-	Error string `json:"error,omitempty"`
-	Dir string `json:"dir,omitempty"`
+	Type     string   `json:"type"`
+	Url      string   `json:"url,omitempty"`
+	Id       int      `json:"id,omitempty"`
+	Filename string   `json:"filename,omitempty"`
+	Size     string   `json:"size,omitempty"`
+	Conns    int      `json:"conns,omitempty"`
+	Stats    []status `json:"stats,omitempty"`
+	Info     bool     `json:"info,omitempty"`
+	Error    string   `json:"error,omitempty"`
+	Dir      string   `json:"dir,omitempty"`
 }
 
 func (msg *message) get() error {
@@ -45,7 +44,7 @@ func (msg *message) get() error {
 	return nil
 }
 
-func (msg *message) send() error {
+func (msg message) send() error {
 	message, err := json.Marshal(msg)
 	if err != nil {
 		return err
@@ -60,14 +59,14 @@ func (msg *message) send() error {
 
 type completedInfo struct {
 	down *Download
-	err error
+	err  error
 }
 
 type downloads struct {
 	collection map[int]*Download
-	addChan chan message
-	message chan message
-	insertDown chan *Download
+	addChan    chan message
+	message    chan message
+	insert     chan *Download
 }
 
 func (downs *downloads) addDownload() {
@@ -75,12 +74,12 @@ func (downs *downloads) addDownload() {
 		down := newDownload(info.Url, info.Conns, info.Id, info.Dir)
 		msg := message{
 			Type: "new",
-			Id: info.Id,
+			Id:   info.Id,
 		}
 		var err error
 		if info.Url == "" {
 			// resuming, set url & filename as well
-			err = down.resume(filepath.Join(info.Dir, PART_DIR_NAME, info.Filename + PROG_FILE_EXT))
+			err = down.resume(filepath.Join(info.Dir, PART_DIR_NAME, info.Filename+PROG_FILE_EXT))
 		} else {
 			// new download, set filename as well
 			err = down.start()
@@ -90,11 +89,36 @@ func (downs *downloads) addDownload() {
 			msg.send()
 			continue
 		}
-		downs.insertDown <- down
+		downs.insert <- down
 	}
 }
 
+func (downs *downloads) insertDown(down *Download, completed chan completedInfo) {
+	downs.collection[down.id] = down
+	go func() {
+		err := <-down.err
+		completed <- completedInfo{down: down, err: err}
+	}()
+	var size string
+	if down.length > 0 {
+		sizeVal, unit := readableSize(down.length)
+		size = fmt.Sprintf("%.2f%s", sizeVal, unit)
+	} else {
+		size = "Unknown"
+	}
+	message{
+		Type:     "new",
+		Id:       down.id,
+		Url:      down.url,
+		Filename: down.filename,
+		Size:     size,
+	}.send()
+}
+
 func (downs *downloads) sendInfo() bool {
+	if len(downs.collection) == 0 {
+		return false
+	}
 	var stats []status
 	for _, down := range downs.collection {
 		// get only the available stats, to not block
@@ -107,27 +131,61 @@ func (downs *downloads) sendInfo() bool {
 			continue
 		}
 	}
-	msg := message{
-		Type: "info",
-		Stats: stats,
+	if len(stats) > 0 {
+		message{
+			Type:  "info",
+			Stats: stats,
+		}.send()
 	}
-	msg.send()
-	if len(stats) > 0 || len(downs.collection) > 0 {
-		return true
-	}
-	return false
+	return true
 }
 
 func (downs *downloads) listen() {
 	go downs.coordinate()
 	for {
 		var msg message
-		if err := msg.get(); err != nil {  // shutdown
+		if err := msg.get(); err != nil { // shutdown
 			close(downs.message)
 			return
 		}
 		downs.message <- msg
 	}
+}
+
+func (downs *downloads) handleMsg(msg message) {
+	switch msg.Type {
+	case "pause":
+		downs.collection[msg.Id].stop <- os.Interrupt
+	case "new":
+		downs.addChan <- msg
+	case "pause-all":
+		pause := func(down *Download) {
+			down.stop <- os.Interrupt
+		}
+		for _, down := range downs.collection {
+			go pause(down)
+		}
+	default:
+		message{
+			Type:  "error",
+			Error: "Message type not recognized",
+		}.send()
+	}
+
+}
+
+func (downs *downloads) handleCompleted(info completedInfo) {
+	delete(downs.collection, info.down.id)
+	msg := message{Id: info.down.id}
+	if info.err == nil {
+		msg.Type = "completed"
+	} else if info.err == pausedError {
+		msg.Type = "pause"
+	} else {
+		msg.Type = "failed"
+		msg.Error = info.err.Error()
+	}
+	msg.send()
 }
 
 func (downs *downloads) coordinate() {
@@ -141,30 +199,15 @@ func (downs *downloads) coordinate() {
 	for {
 		select {
 		case msg, ok := <-downs.message:
-			if !ok {return}
-			switch msg.Type {
-			case "info":
+			if !ok {
+				return
+			} else if msg.Type == "info" {
 				sendingInfo = msg.Info
 				if sendingInfo {
 					timer.Reset(STAT_INTERVAL)
 				}
-			case "pause":
-				downs.collection[msg.Id].stop <- os.Interrupt
-			case "new":
-				downs.addChan <- msg
-			case "pause-all":
-				pause := func(down *Download) {
-					down.stop <- os.Interrupt
-				}
-				for _, down := range downs.collection {
-					go pause(down)
-				}
-			default:
-				msg := message{
-					Type: "error",
-					Error: "Message type not recognized",
-				}
-				msg.send()
+			} else {
+				downs.handleMsg(msg)
 			}
 		case <-timer.C:
 			if !sendingInfo {
@@ -175,49 +218,20 @@ func (downs *downloads) coordinate() {
 			} else {
 				sendingInfo = false
 			}
-		case down := <-downs.insertDown:
-			downs.collection[down.id] = down
-			go func() {
-				err := <-down.err
-				completed <- completedInfo{down: down, err: err}
-			}()
-			var size string
-			if down.length > 0 {
-				sizeVal, unit := readableSize(down.length)
-				size = fmt.Sprintf("%.2f%s", sizeVal, unit)
-			} else {
-				size = "Unknown"
-			}
-			msg := message{
-				Type: "new",
-				Id: down.id,
-				Url: down.url,
-				Filename: down.filename,
-				Size: size,
-			}
-			msg.send()
+		case down := <-downs.insert:
+			downs.insertDown(down, completed)
 		case info := <-completed:
-			delete(downs.collection, info.down.id)
-			msg := message{Id: info.down.id}
-			if info.err == nil {
-				msg.Type = "completed"
-			} else if info.err == pausedError {
-				msg.Type = "pause"
-			} else {
-				msg.Type = "failed"
-				msg.Error = info.err.Error()
-			}
-			msg.send()
+			downs.handleCompleted(info)
 		}
 	}
 }
 
 func extension() {
 	downs := downloads{
-		addChan: make(chan message, 10),
+		addChan:    make(chan message, 10),
 		collection: map[int]*Download{},
-		message: make(chan message),
-		insertDown: make(chan *Download),
+		message:    make(chan message),
+		insert:     make(chan *Download),
 	}
 	downs.listen()
 }
