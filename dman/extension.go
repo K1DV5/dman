@@ -176,6 +176,8 @@ func (downs *downloads) handleMsg(msg message) {
 		}
 	case "remove":
 		go downs.remove(msg)
+	case "open":
+		go startFile(filepath.Join(msg.Dir, msg.Filename))  // platform dependent
 	default:
 		message{
 			Type:  "error",

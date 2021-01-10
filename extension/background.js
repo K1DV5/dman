@@ -95,6 +95,15 @@ function switchUpdates(to) {
     native.postMessage({type: 'info', info: to})
 }
 
+function openFile(id) {
+    let down = downloads[id]
+    native.postMessage({type: 'open', filename: down.filename, dir: downloadsPath})
+}
+
+function openDir(id) {
+    native.postMessage({type: 'open', dir: downloadsPath})
+}
+
 // states indicating in progress
 let progStates = [S_DOWNLOADING, S_REBUILDING]
 

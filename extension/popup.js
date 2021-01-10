@@ -180,3 +180,17 @@ document.getElementById('clean').addEventListener('click', event => {
         }
     }
 })
+
+function openPath(event) {
+    event.preventDefault()
+    let item = document.getElementById(lastFocusId)
+    if (item == null) return
+    if (event.target.id == 'open') {
+        bg.openFile(lastFocusId)
+    } else {
+        bg.openDir(lastFocusId)
+    }
+}
+
+document.getElementById('open').addEventListener('click', openPath)
+document.getElementById('folder').addEventListener('click', openPath)

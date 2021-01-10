@@ -62,7 +62,7 @@ func standalone(url string, resume bool) {
 
 func main() {
 	if len(os.Args) == 1 {
-		setup()
+		setup()  // platform dependent
 	} else if strings.HasPrefix(os.Args[1], "chrome-extension://") {
 		extension()
 	} else if strings.HasPrefix(os.Args[1], "http://") || strings.HasPrefix(os.Args[1], "https://") {
