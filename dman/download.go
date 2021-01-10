@@ -280,6 +280,12 @@ func (down *Download) coordinate() {
 					mainError = job.err
 				}
 				if mainError != nil { // finished pausing or failing
+					// close the completed files
+					for _, job := range down.jobsDone {
+						if err := job.file.Close(); err != nil {
+							mainError = fmt.Errorf("%v, & %v", mainError, err)
+						}
+					}
 					down.saveProgress()
 					down.err <- mainError
 					return
@@ -384,7 +390,6 @@ func (down *Download) handleMsg(job *downJob) func(jobMsg) {
 				return
 			}
 			job.err = pausedError
-			job.file.Close()
 		}
 	}
 }
