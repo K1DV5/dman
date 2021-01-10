@@ -54,6 +54,12 @@ downloads = {
     // },
 }
 
+chrome.storage.local.get(['downloads'], res => {
+    if (res.downloads != undefined) {
+        downloads = res.downloads
+    }
+})
+
 // remove bottom bar when starting a new download
 chrome.downloads.setShelfEnabled(false)
 
@@ -115,6 +121,7 @@ function removeItem(id) {
     if (download.state == S_COMPLETED) {
         delete downloads[id]
         chrome.extension.getViews({type: 'popup'})[0]?.finishRemove([id])  // popup.finishRemove
+        chrome.storage.local.set({downloads})
     } else {
         native.postMessage({id, type: 'remove', dir: downloadsPath, filename: download.filename})
     }
@@ -230,6 +237,7 @@ let handlers = {
         }
         delete downloads[message.id]
         chrome.extension.getViews({type: 'popup'})[0]?.finishRemove([message.id])  // popup.finishRemove
+        chrome.storage.local.set({downloads})
     },
 
     error: message => {
