@@ -111,6 +111,11 @@ type downJob struct {
 	err                      error
 }
 
+type readResult struct {
+	n int
+	err error
+}
+
 type Download struct {
 	// Required:
 	id       int
@@ -379,58 +384,86 @@ func (down *Download) handleMsg(job *downJob) func(jobMsg) {
 		} else if msg.order == O_LENGTH { // subtract length
 			eta = eta * (job.length - msg.length - job.received) / (job.length - job.received)
 			job.length -= msg.length
+			if job.received >= job.length {
+				job.file.Truncate(int64(job.length))
+				job.length = job.received
+			}
 		} else if msg.order == O_COMP_PHOLDER && msg.offset != O_STOP {
 			// just until over message is accepted, stat or params
 			if msg.offset > 1 {
 				return
 			}
 			overDestChans[msg.offset] <- toSend
-		} else { // pause ordered
-			if job.received == job.length {
-				return
-			}
-			job.err = pausedError
+		}
+	}
+}
+
+func (down *Download) readBody(body io.ReadCloser, bufCh chan []byte, resCh chan readResult) {
+	defer close(resCh)
+	for buf := range bufCh {
+		n, err := body.Read(buf)  // can be interrupted by closing job.body
+		resCh <- readResult{
+			n: n,
+			err: err,
 		}
 	}
 }
 
 func (down *Download) download(job *downJob) {
-	defer job.body.Close()
 	handleMsg := down.handleMsg(job)
-downLoop:
+	bufCh := make(chan []byte, 1)
+	defer close(bufCh)
+	readCh := make(chan readResult)
+	var readRes readResult
+	go down.readBody(job.body, bufCh, readCh)
+	bufLen := LEN_CHECK
+	if remaining := job.length - job.received; remaining < bufLen {
+		bufLen = remaining
+	}
+	var buffer [LEN_CHECK]byte
+	bufCh <- buffer[:bufLen]
 	for {
 		select {
 		case msg := <-job.msg:
 			handleMsg(msg)
-			if msg.order == O_STOP {
-				break downLoop
+			if msg.order != O_STOP {
+				continue
 			}
-		default: // continue downloading
+			// stop ordered
+			readRes = readResult{err: pausedError}
+		case readRes = <-readCh:  // continue reading
 		}
-		if job.length > 0 && job.length-job.received < LEN_CHECK { // final
-			remaining := job.length - job.received
-			if remaining > 0 {
-				io.CopyN(job.file, job.body, int64(remaining))
-				job.received += remaining
-			} else if remaining < 0 { // received too much
-				job.file.Truncate(int64(job.length))
-				job.received = job.length
+		// code adapted from io source
+		if readRes.n > 0 {
+			nWrote, errW := job.file.Write(buffer[:readRes.n])
+			if nWrote > 0 {
+				job.received += nWrote
+				if job.received == job.length {  // finished
+					break
+				} else if remaining := job.length - job.received; remaining < LEN_CHECK {
+					bufLen = remaining
+				}
 			}
-			break
+			if errW != nil {
+				job.err = errW
+				break
+			}
+			if readRes.n != nWrote {
+				job.err = io.ErrShortWrite
+				break
+			}
 		}
-		wrote, err := io.CopyN(job.file, job.body, int64(LEN_CHECK))
-		if err != nil {
-			job.received += int(wrote)
-			if err == io.EOF {
-				// unknown length, now known
+		if readRes.err != nil {
+			if readRes.err == io.EOF { // unknown length, now known
 				job.length = job.received
 			} else {
-				job.err = err
+				job.err = readRes.err
 			}
 			break
 		}
-		job.received += LEN_CHECK
+		bufCh <- buffer[:bufLen]
 	}
+	job.body.Close()
 	// continue responding to messages until done message is received
 	for {
 		select {
