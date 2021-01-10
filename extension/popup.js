@@ -146,6 +146,7 @@ function finishRemove(id) {
     let item = document.getElementById(id)
     if (item == null) return
     item.remove()
+    console.log(id)
 }
 
 document.getElementById('remove').addEventListener('click', event => {
@@ -169,3 +170,13 @@ document.getElementById('pause-all').addEventListener('click', () => {
     bg.pauseAll()
 })
 document.getElementById('resume').addEventListener('click', pauseResume)
+
+document.getElementById('clean').addEventListener('click', event => {
+    event.preventDefault()
+    for (let [id, down] of Object.entries(bg.downloads)) {
+        // clear only the completed, paused and failed ones
+        if (!(down.state == bg.S_DOWNLOADING || down.state == bg.S_REBUILDING)) {
+            bg.removeItem(Number(id))
+        }
+    }
+})

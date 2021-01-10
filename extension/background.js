@@ -105,6 +105,7 @@ function removeItem(id) {
     }
     if (download.state == S_COMPLETED) {
         delete downloads[id]
+        chrome.extension.getViews({type: 'popup'})[0]?.finishRemove([id])  // popup.finishRemove
     } else {
         native.postMessage({id, type: 'remove', dir: downloadsPath, filename: download.filename})
     }
@@ -120,7 +121,7 @@ updateBadge()
 let handlers = {
     info: message => {
         let ids = []
-        for (let stat of message.stats || []) {
+        for (let stat of message.stats) {
             ids.push(stat.id)
             let download = downloads[stat.id]
             download.percent = stat.percent
@@ -223,7 +224,7 @@ let handlers = {
     },
 
     error: message => {
-        console.error('DMan error: ', message.error)
+        alert('Error:', message.error)
     },
 
     default: message => {

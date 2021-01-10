@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+	"io"
 )
 
 var byteOrder = binary.LittleEndian // most likely
@@ -145,9 +146,16 @@ func (downs *downloads) listen() {
 	go downs.coordinate()
 	for {
 		var msg message
-		if err := msg.get(); err != nil { // shutdown
-			close(downs.message)
-			return
+		if err := msg.get(); err != nil {
+			if err == io.EOF { // shutdown
+				close(downs.message)
+				return
+			}
+			message{
+				Type: "error",
+				Error: err.Error(),
+			}.send()
+			continue
 		}
 		downs.message <- msg
 	}
