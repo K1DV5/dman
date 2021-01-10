@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 )
 
-// this is for windows
 const (
 	BIN = "dman.exe"
 	NAME = "com.k1dv5.dman"
@@ -47,9 +46,7 @@ func setup() error {
 		return err
 	}
 
-	return execCmd("C:\\Windows\\System32\\cmd.exe", []string{
-		"/c",
-		"REG",
+	return execCmd("REG", []string{
 		"ADD",
 		"HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\" + NAME,
 		"/ve",
@@ -62,10 +59,18 @@ func setup() error {
 }
 
 func execCmd(cmd string, args []string) error {
-	proc, err := os.StartProcess(cmd, args, &os.ProcAttr{Files: []*os.File{os.Stdin, os.Stdout, os.Stderr}})
+	proc, err := os.StartProcess(
+		"C:\\Windows\\System32\\cmd.exe",
+		append([]string{"/c", cmd}, args...),
+		&os.ProcAttr{Files: []*os.File{os.Stdin, os.Stdout, os.Stderr}},
+	)
 	if err != nil {
 		return err
 	}
 	proc.Wait()
 	return nil
+}
+
+func startFile(path string) {
+	execCmd("start", []string{path})
 }
