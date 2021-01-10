@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 )
 
@@ -165,6 +166,8 @@ func (downs *downloads) handleMsg(msg message) {
 		for _, down := range downs.collection {
 			go pause(down)
 		}
+	case "remove":
+		go downs.remove(msg)
 	default:
 		message{
 			Type:  "error",
@@ -185,6 +188,31 @@ func (downs *downloads) handleCompleted(info completedInfo) {
 		msg.Type = "failed"
 		msg.Error = info.err.Error()
 	}
+	msg.send()
+}
+
+func (downs *downloads) remove(info message) {
+	msg := message{Id: info.Id, Type: "remove"}
+	f, err := os.Open(filepath.Join(info.Dir, PART_DIR_NAME, info.Filename+PROG_FILE_EXT))
+	if err != nil {
+		msg.Error = err.Error()
+		msg.send()
+		return
+	}
+	var prog progress
+	if err := json.NewDecoder(f).Decode(&prog); err != nil {
+		msg.Error = err.Error()
+		msg.send()
+		return
+	}
+	f.Close()
+	os.Remove(f.Name())
+	for _, part := range prog.Parts {
+		fname := filepath.Join(info.Dir, PART_DIR_NAME, info.Filename+"."+strconv.Itoa(part["offset"]))
+		os.Remove(fname)
+	}
+	os.Remove(filepath.Join(info.Dir, PART_DIR_NAME))
+	msg.Id = prog.Id
 	msg.send()
 }
 

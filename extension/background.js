@@ -98,6 +98,19 @@ function switchUpdates(to) {
 // states indicating in progress
 let progStates = [S_DOWNLOADING, S_REBUILDING]
 
+function removeItem(id) {
+    let download = downloads[id]
+    if (download == undefined || progStates.includes(download.state)) {  // in progress, cannot remove
+        return false
+    }
+    if (download.state == S_COMPLETED) {
+        delete downloads[id]
+    } else {
+        native.postMessage({id, type: 'remove', dir: downloadsPath, filename: download.filename})
+    }
+    return true
+}
+
 function updateBadge() {
     let downs = Object.values(downloads).filter(d => progStates.includes(d.state)).length
     chrome.browserAction.setBadgeText({text: String(downs || '')})
@@ -199,6 +212,14 @@ let handlers = {
             switchUpdates(false)
         }
         chrome.storage.local.set({downloads})
+    },
+
+    remove: message => {
+        if (message.error) {
+            alert(message.error)
+        }
+        delete downloads[message.id]
+        chrome.extension.getViews({type: 'popup'})[0]?.finishRemove([message.id])  // popup.finishRemove
     },
 
     error: message => {

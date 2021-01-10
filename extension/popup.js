@@ -142,15 +142,20 @@ document.getElementById('cancel-url').addEventListener('click', resetUrl)
 
 // ===================== LIST ======================
 
-function remove(event) {
+function finishRemove(id) {
+    let item = document.getElementById(id)
+    if (item == null) return
+    item.remove()
+}
+
+document.getElementById('remove').addEventListener('click', event => {
     event.preventDefault()
     let item = document.getElementById(lastFocusId)
     if (item == null) return
-    delete bg.downloads[lastFocusId]
-    item.remove()
-    lastFocusId = undefined
-}
-document.getElementById('remove').addEventListener('click', remove)
+    if (bg.removeItem(lastFocusId)) {
+        lastFocusId = undefined
+    }
+})
 
 function pauseResume(event) {
     event.preventDefault()
