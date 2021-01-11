@@ -398,10 +398,10 @@ func (down *Download) handleMsg(job *downJob) func(jobMsg) {
 	}
 }
 
-func (down *Download) readBody(body io.ReadCloser, bufCh chan []byte, resCh chan readResult) {
+func (down *Download) readBody(body io.ReadCloser, buffer []byte, bufLenCh chan int, resCh chan readResult) {
 	defer close(resCh)
-	for buf := range bufCh {
-		n, err := body.Read(buf)  // can be interrupted by closing job.body
+	for bufLen := range bufLenCh {
+		n, err := body.Read(buffer[:bufLen])  // can be interrupted by closing job.body
 		resCh <- readResult{
 			n: n,
 			err: err,
@@ -411,17 +411,17 @@ func (down *Download) readBody(body io.ReadCloser, bufCh chan []byte, resCh chan
 
 func (down *Download) download(job *downJob) {
 	handleMsg := down.handleMsg(job)
-	bufCh := make(chan []byte, 1)
-	defer close(bufCh)
+	bufLenCh := make(chan int, 1)
+	defer close(bufLenCh)
 	readCh := make(chan readResult)
 	var readRes readResult
-	go down.readBody(job.body, bufCh, readCh)
+	var buffer [LEN_CHECK]byte
+	go down.readBody(job.body, buffer[:], bufLenCh, readCh)
 	bufLen := LEN_CHECK
 	if remaining := job.length - job.received; remaining < bufLen {
 		bufLen = remaining
 	}
-	var buffer [LEN_CHECK]byte
-	bufCh <- buffer[:bufLen]
+	bufLenCh <- bufLen
 	for {
 		select {
 		case msg := <-job.msg:
@@ -440,7 +440,7 @@ func (down *Download) download(job *downJob) {
 				job.received += nWrote
 				if job.received == job.length {  // finished
 					break
-				} else if remaining := job.length - job.received; remaining < LEN_CHECK {
+				} else if remaining := job.length - job.received; remaining < bufLen {
 					bufLen = remaining
 				}
 			}
@@ -461,7 +461,7 @@ func (down *Download) download(job *downJob) {
 			}
 			break
 		}
-		bufCh <- buffer[:bufLen]
+		bufLenCh <- bufLen
 	}
 	job.body.Close()
 	// continue responding to messages until done message is received
