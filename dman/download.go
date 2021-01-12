@@ -414,54 +414,53 @@ func (down *Download) download(job *downJob) {
 	bufLenCh := make(chan int, 1)
 	defer close(bufLenCh)
 	readCh := make(chan readResult)
-	var readRes readResult
 	var buffer [LEN_CHECK]byte
 	go down.readBody(job.body, buffer[:], bufLenCh, readCh)
 	bufLen := LEN_CHECK
-	if remaining := job.length - job.received; remaining < bufLen {
-		bufLen = remaining
-	}
-	bufLenCh <- bufLen
-	for {
+	// to start the reading
+	bufLenCh <- 0
+	downLoop: for {
 		select {
 		case msg := <-job.msg:
 			handleMsg(msg)
-			if msg.order != O_STOP {
-				continue
+			if msg.order == O_STOP {
+				job.err = pausedError
+				break downLoop
+			} else if job.received == job.length {
+				break downLoop
 			}
-			// stop ordered
-			readRes = readResult{err: pausedError}
-		case readRes = <-readCh:  // continue reading
-		}
-		// code adapted from io source
-		if readRes.n > 0 {
-			nWrote, errW := job.file.Write(buffer[:readRes.n])
-			if nWrote > 0 {
-				job.received += nWrote
-				if job.received == job.length {  // finished
-					break
-				} else if remaining := job.length - job.received; remaining < bufLen {
-					bufLen = remaining
+		case readRes := <-readCh:  // continue reading
+			// code adapted from io source
+			if readRes.n > 0 {
+				nWrote, errW := job.file.Write(buffer[:readRes.n])
+				if nWrote > 0 {
+					job.received += nWrote
+					if job.received == job.length {  // finished
+						break downLoop
+					}
+				}
+				if errW != nil {
+					job.err = errW
+					break downLoop
+				}
+				if readRes.n != nWrote {
+					job.err = io.ErrShortWrite
+					break downLoop
 				}
 			}
-			if errW != nil {
-				job.err = errW
-				break
+			if readRes.err != nil {
+				if readRes.err == io.EOF { // unknown length, now known
+					job.length = job.received
+				} else {
+					job.err = readRes.err
+				}
+				break downLoop
 			}
-			if readRes.n != nWrote {
-				job.err = io.ErrShortWrite
-				break
+			if remaining := job.length - job.received; remaining < bufLen {
+				bufLen = remaining
 			}
+			bufLenCh <- bufLen
 		}
-		if readRes.err != nil {
-			if readRes.err == io.EOF { // unknown length, now known
-				job.length = job.received
-			} else {
-				job.err = readRes.err
-			}
-			break
-		}
-		bufLenCh <- bufLen
 	}
 	job.body.Close()
 	// continue responding to messages until done message is received
@@ -515,9 +514,6 @@ func (down *Download) rebuild() {
 			down.length = down.jobsDone[0].length
 		}
 		for _, job := range down.jobsDone[1:] {
-			if job.file == nil {
-				continue
-			}
 			if _, err = job.file.Seek(0, 0); err != nil {
 				return
 			}
