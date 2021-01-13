@@ -171,7 +171,7 @@ document.getElementById('pause-all').addEventListener('click', () => {
 })
 document.getElementById('resume').addEventListener('click', pauseResume)
 
-document.getElementById('clean').addEventListener('click', event => {
+document.getElementById('clear').addEventListener('click', event => {
     event.preventDefault()
     for (let [id, down] of Object.entries(bg.downloads)) {
         // clear only the completed, paused and failed ones
@@ -194,3 +194,82 @@ function openPath(event) {
 
 document.getElementById('open').addEventListener('click', openPath)
 document.getElementById('folder').addEventListener('click', openPath)
+
+// ==================== SETTINGS ===================
+
+document.getElementById('settings-butt').addEventListener('click', event => {
+    let downs = document.getElementById('downloads').style
+    let setts = document.getElementById('settings').style
+    if (downs.display == '' || downs.display == 'block') {
+        // list shown, show settings
+        event.target.innerText = 'Back'
+        downs.display = 'none'
+        setts.display = 'block'
+        retrieveSettings()
+    } else {
+        event.target.innerText = 'Settings'
+        downs.display = 'block'
+        setts.display = 'none'
+    }
+})
+
+function parseCats(cats) {
+    let categories = {}
+    for (let line of cats.split('\n')) {
+        line = line.trim()
+        if (line == '') {
+            continue
+        }
+        let [name, extensions] = line.split(':')
+        if (extensions == undefined) {
+            continue
+        }
+        name = name.trim()
+        extensions = extensions.trim()
+        if (name == '' || extensions == '') {
+            continue
+        }
+        let exts = []
+        for (let ext of extensions.split(' ')) {
+            if (ext == '') {
+                continue
+            }
+            exts.push(ext)
+        }
+        if (exts.length == 0) {
+            continue
+        }
+        categories[name] = exts
+    }
+    return categories
+}
+
+function retrieveSettings() {
+    let catsElm = document.getElementById('categories')
+    let connsElm = document.getElementById('conns')
+    chrome.storage.local.get('settings', res => {
+        if (res.settings == undefined) {
+            return
+        }
+        connsElm.value = res.settings.conns
+        let cats = []
+        for (let [name, exts] of Object.entries(res.settings.categories)) {
+            cats.push(name + ': ' + exts.join(' '))
+        }
+        catsElm.value = cats.join('\n')
+    })
+}
+
+document.getElementById('save-settings').addEventListener('click', event => {
+    event.preventDefault()
+    let catsElm = document.getElementById('categories')
+    let connsElm = document.getElementById('conns')
+    let settings = {
+        conns: Number(connsElm.value),
+        categories: parseCats(catsElm.value)
+    }
+    chrome.storage.local.set({settings}, () => {
+        retrieveSettings()
+        bg.settings = settings
+    })
+})

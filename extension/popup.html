@@ -11,29 +11,29 @@
             <div>Downloads</div>
             <button id="settings-butt">Settings</button>
         </div>
-        <nav>
-            <div id="toolbar">
-                <button id="add">Add</button>
-                <button id="resume">Start</button>
-                <button id="pause">Stop</button>
-                <button id="pause-all">Stop all</button>
-                <button id="open">Open</button>
-                <button id="folder">Folder</button>
-                <button id="remove">Remove</button>
-                <button id="clean">Clean</button>
-            </div>
-            <div id="input-url">
-                <input type="text" id="url">
-                <button id="add-url">Go</button>
-                <button id="cancel-url">&times;</button>
-            </div>
-        </nav>
-        <div id="list">
+        <div id="downloads">
+            <nav>
+                <div id="toolbar">
+                    <button id="add">Add</button>
+                    <button id="resume">Start</button>
+                    <button id="pause">Stop</button>
+                    <button id="pause-all">Stop all</button>
+                    <button id="open">Open</button>
+                    <button id="folder">Folder</button>
+                    <button id="remove">Remove</button>
+                    <button id="clear">Clear</button>
+                </div>
+                <div id="input-url">
+                    <input type="text" placeholder="Paste URL here" id="url">
+                    <button id="add-url">Go</button>
+                    <button id="cancel-url">&times;</button>
+                </div>
+            </nav>
             <table border="1">
-                <tr id="tbl-head">
-                    <th id="fname">File name</th>
-                    <th id="size">Size</th>
-                    <th id="date">Date</th>
+                <tr>
+                    <th>File name</th>
+                    <th>Size</th>
+                    <th>Date</th>
                 </tr>
                 <!-- <tr tabindex="0"> -->
                 <!--     <td> -->
@@ -58,12 +58,24 @@
             </table>
         </div>
 
-        <div id="settings">
-            <div>
-                <button>Back</button>
-            </div>
-            Options
-        </div>
+        <form id="settings">
+            <p>
+                <label for="conns">Connections: </label>
+                <select id="conns" name="conns">
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="4">4</option>
+                    <option value="8">8</option>
+                    <option value="16">16</option>
+                    <option value="32">32</option>
+                </select>
+            </p>
+            <fieldset>
+                <legend>File categories</legend>
+                <textarea id="categories" name="categories"></textarea>
+            </fieldset>
+            <button id="save-settings">Save</button>
+        </form>
 
         <script src="popup.js"></script>
     </body>

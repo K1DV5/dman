@@ -38,17 +38,22 @@ button:active {
     width: 20%;
 }
 
-#list {
+table {
     margin-top: .5em;
     border: solid 1px grey;
     max-height: 85vh;
     overflow-y: auto;
-}
-
-table {
     border-collapse: collapse;
     width: 36em;
     caption-side: bottom;
+}
+
+table tr:first-child {
+    background: #8888;
+}
+
+table tr:first-child th:first-child {
+    width: 22em;
 }
 
 th, td {
@@ -81,14 +86,23 @@ tr:focus td {
     transition: width 1s;
 }
 
-#tbl-head {
-    background: #8888;
-}
-
-#tbl-head #fname {
-    width: 22em;
-}
-
 #settings {
     display: none;
+    width: 36em;
+    margin-top: .5em;
+    border: solid 1px grey;
+}
+
+select {
+    border: solid 1px grey;
+    background: transparent;
+}
+
+select:focus {
+    outline: transparent
+}
+
+textarea {
+    width: 96%;
+    height: 10em;
 }

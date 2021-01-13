@@ -1,3 +1,4 @@
+
 // constants, for easy recognition
 S_DOWNLOADING = 0,
 S_PAUSED = 1,
@@ -20,43 +21,19 @@ downloads = {
     //     eta: '5m23s',
     //     date: '12/16/2020'
     // },
-    // 2: {
-    //     state: S_PAUSED,  // paused
-    //     url: 'http://foo',
-    //     filename: 'foo',
-    //     percent: 70,
-    //     size: '23.1MB',
-    //     date: '12/16/2020'
-    // },
-    // 3: {
-    //     state: S_FAILED,  // failed
-    //     url: 'http://foo',
-    //     filename: 'foo',
-    //     percent: 70,
-    //     size: '23.1MB',
-    //     date: '12/16/2020',
-    //     error: "Foo bar"
-    // },
-    // 4: {
-    //     state: S_REBUILDING,  // rebuilding
-    //     url: 'http://foo',
-    //     filename: 'foo',
-    //     percent: 70,
-    //     size: '23.1MB',
-    //     date: '12/16/2020'
-    // },
-    // 5: {
-    //     state: S_COMPLETED,  // completed
-    //     url: 'http://foo',
-    //     filename: 'foo',
-    //     size: '23.1MB',
-    //     date: '12/16/2020'
-    // },
 }
 
-chrome.storage.local.get(['downloads'], res => {
+settings = {
+    conns: 1,
+    categories: {}
+}
+
+chrome.storage.local.get(['downloads', 'settings'], res => {
     if (res.downloads != undefined) {
         downloads = res.downloads
+    }
+    if (res.settings != undefined) {
+        settings = res.settings
     }
 })
 
@@ -72,7 +49,7 @@ function addItem(url) {
         type: 'new',
         id: Number((Date.now()).toString().slice(2, -2)),
         url,
-        conns: 32,
+        conns: settings.conns,
         dir: downloadsPath
     })
 }

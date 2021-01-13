@@ -483,8 +483,10 @@ func (down *Download) start() error {
 	if err != nil {
 		return err
 	}
-	// get filename
-	down.filename = getFilename(resp)
+	if down.filename == "" {
+		// get filename
+		down.filename = getFilename(resp)
+	}
 	file, err := os.Create(filepath.Join(down.dir, PART_DIR_NAME, down.filename+".0"))
 	if err != nil {
 		return err
@@ -630,12 +632,13 @@ type progress struct {
 	Parts    []map[string]int `json:"parts"`
 }
 
-func newDownload(url string, maxConns int, id int, dir string) *Download {
+func newDownload(url string, maxConns int, id int, dir string, filename string) *Download {
 	down := Download{
 		id:         id,
 		url:        url,
 		dir:        dir,
 		maxConns:   maxConns,
+		filename:   filename,
 		jobs:       map[int]*downJob{},
 		err:        make(chan error),
 		stop:       make(chan os.Signal),

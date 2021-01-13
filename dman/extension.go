@@ -73,7 +73,7 @@ type downloads struct {
 
 func (downs *downloads) addDownload() {
 	for info := range downs.addChan {
-		down := newDownload(info.Url, info.Conns, info.Id, info.Dir)
+		down := newDownload(info.Url, info.Conns, info.Id, info.Dir, info.Filename)
 		msg := message{
 			Type: "new",
 			Id:   info.Id,
