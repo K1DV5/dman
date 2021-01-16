@@ -77,6 +77,8 @@ func (downs *downloads) addDownload() {
 			Id:   info.Id,
 		}
 		var errMsg string
+		// create dir if it doesn't exist
+		os.Mkdir(info.Dir, 666)
 		if info.Url == "" {
 			// resuming, set url & filename as well
 			if err := down.resume(filepath.Join(info.Dir, PART_DIR_NAME, info.Filename+PROG_FILE_EXT)); err != nil {
@@ -136,6 +138,8 @@ func (downs *downloads) handleMsg(msg message) {
 	switch msg.Type {
 	case "pause":
 		downs.collection[msg.Id].stop <- os.Interrupt
+	case "remove":
+		go downs.remove(msg)
 	case "new":
 		downs.addChan <- msg
 	case "pause-all":
@@ -145,6 +149,8 @@ func (downs *downloads) handleMsg(msg message) {
 		for _, down := range downs.collection {
 			go pause(down)
 		}
+	case "open":
+		go startFile(filepath.Join(msg.Dir, msg.Filename))  // platform dependent
 	default:
 		message{
 			Type:  "error",
@@ -152,6 +158,31 @@ func (downs *downloads) handleMsg(msg message) {
 		}.send()
 	}
 
+}
+
+func (downs *downloads) remove(info message) {
+	msg := message{Id: info.Id, Type: "remove"}
+	f, err := os.Open(filepath.Join(info.Dir, PART_DIR_NAME, info.Filename+PROG_FILE_EXT))
+	if err != nil {
+		msg.Error = err.Error()
+		msg.send()
+		return
+	}
+	var prog progress
+	if err := json.NewDecoder(f).Decode(&prog); err != nil {
+		msg.Error = err.Error()
+		msg.send()
+		return
+	}
+	f.Close()
+	os.Remove(f.Name())
+	for _, part := range prog.Parts {
+		fname := filepath.Join(info.Dir, PART_DIR_NAME, fmt.Sprintf("%s.%d", info.Filename, part["offset"]))
+		os.Remove(fname)
+	}
+	os.Remove(filepath.Join(info.Dir, PART_DIR_NAME))
+	msg.Id = prog.Id
+	msg.send()
 }
 
 func (downs *downloads) finishInsertDown(down *Download, completed chan completedInfo) {
