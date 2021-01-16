@@ -89,6 +89,11 @@ type downJob struct {
 	err                      error
 }
 
+type checkJob struct {
+	received int64
+	job *downJob
+}
+
 type Download struct {
 	// Required:
 	id       int
@@ -101,7 +106,7 @@ type Download struct {
 	// Dynamically set:
 	filename  string
 	length    int64
-	checkJob chan *downJob
+	checkJob chan checkJob
 	jobDone   chan *downJob
 	jobs      map[int64]*downJob
 	jobsDone  []*downJob
@@ -228,21 +233,21 @@ func (down *Download) initJob(job *downJob) {
 	job.eta = int64(LONG_TIME)
 }
 
+// this will modify only the response body and the file
 func (down *Download) download(job *downJob) {
 	bufLen := LEN_CHECK
 	if job.length < int64(bufLen) {
 		bufLen = int(job.length)
 	}
 	// kicksart the communication
-	down.checkJob <- job
+	down.checkJob <- checkJob{0, job}
 	for bufLen := range job.bufLenCh {
 		written, err := io.CopyN(job.file, job.body, bufLen)
-		job.received += written
 		if err != nil {
 			job.err = err
 			break
 		}
-		down.checkJob <- job
+		down.checkJob <- checkJob{written, job}
 	}
 	down.jobDone <- job
 }
@@ -266,19 +271,20 @@ func (down *Download) coordinate() {
 	}
 	for {
 		select {
-		case job := <- down.checkJob:
+		case check := <- down.checkJob:
+			check.job.received += check.received
 			if state != S_DOWNLOADING {
 				continue
 			}
-			if job.received < job.length {
+			if check.job.received < check.job.length {
 				bufLen := int64(LEN_CHECK)
-				if remaining := job.length - job.received; remaining < bufLen {
+				if remaining := check.job.length - check.job.received; remaining < bufLen {
 					bufLen = remaining
 				}
-				job.bufLenCh <- bufLen
+				check.job.bufLenCh <- bufLen
 			} else {
-				job.body.Close()
-				close(job.bufLenCh)
+				check.job.body.Close()
+				close(check.job.bufLenCh)
 			}
 		case job := <-down.jobDone:
 			if job.offset < 0 { // finished rebuilding
@@ -548,7 +554,7 @@ func newDownload(url string, maxConns int, id int, dir string) *Download {
 		stop:       make(chan os.Signal),
 		emitStatus: make(chan status, 1), // buffered to bypass emitting if no consumer and continue updating, coordinate()
 		insertJob:  make(chan [2]*downJob),
-		checkJob: make(chan *downJob, 10),
+		checkJob: make(chan checkJob, 10),
 		jobDone:    make(chan *downJob),
 	}
 	return &down
