@@ -12,6 +12,7 @@ downloads = {
     // 1: {
     //     state: S_DOWNLOADING,  // downloading
     //     url: 'http://foo',
+    //     dir: 'D:\\Downloads',
     //     filename: 'foo',
     //     size: '23.1MB',
     //     speed: '8MB/s',
@@ -40,17 +41,14 @@ chrome.storage.local.get(['downloads', 'settings'], res => {
 // remove bottom bar when starting a new download
 chrome.downloads.setShelfEnabled(false)
 
-// downloads folder, set in setupDownListener() below
-let downloadsPath
-
-function addItem(url) {
+function addItem(id, url, dir) {
     // send to native
     native.postMessage({
         type: 'new',
-        id: Number((Date.now()).toString().slice(2, -2)),
+        id,
         url,
+        dir,
         conns: settings.conns,
-        dir: downloadsPath
     })
 }
 
@@ -62,11 +60,11 @@ function changeState(id, to) {
         // pause
         native.postMessage({id, type: 'pause', id})
     } else if (to == null) {  // delete
-        native.postMessage({id, type: 'delete', filename: info.filename, dir: downloadsPath})
+        native.postMessage({id, type: 'delete', filename: info.filename, dir: info.dir})
     } else {  // paused / failed
         if (to != S_DOWNLOADING) return
         // resume
-        native.postMessage({id, type: 'new', filename: info.filename, dir: downloadsPath})
+        native.postMessage({id, type: 'new', filename: info.filename, dir: info.dir})
     }
 }
 
@@ -80,11 +78,11 @@ function switchUpdates(to) {
 
 function openFile(id) {
     let down = downloads[id]
-    native.postMessage({type: 'open', filename: down.filename, dir: downloadsPath})
+    native.postMessage({type: 'open', filename: down.filename, dir: down.dir})
 }
 
 function openDir(id) {
-    native.postMessage({type: 'open', dir: downloadsPath})
+    native.postMessage({type: 'open', dir: downloads[id]?.dir})
 }
 
 // states indicating in progress
@@ -100,7 +98,7 @@ function removeItem(id) {
         chrome.extension.getViews({type: 'popup'})[0]?.finishRemove([id])  // popup.finishRemove
         chrome.storage.local.set({downloads})
     } else {
-        native.postMessage({id, type: 'remove', dir: downloadsPath, filename: download.filename})
+        native.postMessage({id, type: 'remove', filename: download.filename})
     }
     return true
 }
@@ -137,41 +135,55 @@ let handlers = {
 
     new: message => {
         if (message.error) {
+            chrome.downloads.erase({id: message.id})
             return alert(message.error)
         }
         let popup = chrome.extension.getViews({type: 'popup'})[0]
         if (downloads[message.id] == undefined) {  // new download
-            let download = {
-                state: S_DOWNLOADING,
-                url: message.url,
-                filename: message.filename,
-                size: message.size,
-                percent: 0,
-                written: '...',
-                conns: 0,
-                speed: '...',
-                eta: '...',
-                date: new Date().toLocaleDateString(),
-            }
-            downloads[message.id] = download
-            if (popup) {
-                popup.addRow(download, message.id)  // popup.addRow
-                switchUpdates(true)
-            }
-        } else {  // resuming
+            chrome.downloads.search({id: message.id}, items => {
+                if (items.length == 0) {
+                    alert('Browser download not found for ' + message.filename)
+                }
+                let download = {
+                    state: S_DOWNLOADING,
+                    url: message.url,
+                    dir: message.dir,
+                    filename: message.filename,
+                    size: message.size,
+                    percent: 0,
+                    written: '...',
+                    conns: 0,
+                    speed: '...',
+                    eta: '...',
+                    date: new Date().toLocaleDateString(),
+                }
+                downloads[message.id] = download
+                if (popup) {
+                    popup.addRow(download, message.id)  // popup.addRow
+                    switchUpdates(true)
+                }
+                updateBadge()
+                chrome.storage.local.set({downloads})
+                chrome.downloads.erase({id: message.id})
+            })
+        } else if (downloads[message.id].filename != message.filename) {  // resuming
+            alert("Resume error: filenames don't match")
+        } else {
             downloads[message.id].state = S_DOWNLOADING
             if (popup) {
                 popup.update([message.id])  // popup.addRow
                 switchUpdates(true)
             }
+            updateBadge()
+            chrome.storage.local.set({downloads})
         }
-        chrome.storage.local.set({downloads})
     },
 
     pause: message => {
         downloads[message.id].state = S_PAUSED
         chrome.extension.getViews({type: 'popup'})[0]?.update([message.id])  // popup.update
         chrome.storage.local.set({downloads})
+        updateBadge()
     },
 
     failed: message => {
@@ -179,6 +191,7 @@ let handlers = {
         downloads[message.id].error = message.error
         chrome.extension.getViews({type: 'popup'})[0]?.update([message.id])  // popup.update
         chrome.storage.local.set({downloads})
+        updateBadge()
     },
 
     'pause-all': message => {
@@ -189,6 +202,7 @@ let handlers = {
         }
         chrome.extension.getViews({type: 'popup'})[0]?.update(ids)  // popup.update
         chrome.storage.local.set({downloads})
+        updateBadge()
     },
 
     completed: message => {
@@ -228,37 +242,41 @@ let handlers = {
 
 native.onMessage.addListener(message => {
     (handlers[message.type] || handlers.default)(message)
-    if (message.type != 'info') {
-        updateBadge()
-    }
 })
 
 // native.onDisconnect.addListener(() => {
 //     chrome.storage.local.set({downloads})
 // });
 
-function setupDownListener(pingFilename) {
-    let pathSep = navigator.platform == 'Win32' ? '\\' : '/'
-    downloadsPath = pingFilename.slice(0, pingFilename.lastIndexOf(pathSep))
-    chrome.downloads.onCreated.addListener(item => {
-        chrome.downloads.pause(item.id, () => {
-            addItem(item.finalUrl)
-            chrome.downloads.erase({id: item.id})
-        })
-    })
-}
+let pathSep = navigator.platform == 'Win32' ? '\\' : '/'
 
-// get downloads folder
-function getFilename(item) {
+chrome.downloads.onChanged.addListener(item => {
     if (item.filename) {
         chrome.downloads.pause(item.id, () => {
-            chrome.downloads.erase({id: item.id})
-            chrome.downloads.onChanged.removeListener(getFilename)
-            setupDownListener(item.filename.current)
+            // find the dir
+            let fpath = item.filename.current
+            let dirEnd = fpath.lastIndexOf(pathSep)
+            let dir = fpath.slice(0, dirEnd)
+            let fname = fpath.slice(dirEnd)
+            let extStart = fname.lastIndexOf('.')
+            if (extStart < 0) {
+                dir = dir
+            } else {
+                let extension = fname.slice(extStart + 1)
+                main: for (let [category, extensions] of Object.entries(settings.categories)) {
+                    for (let ext of extensions) {
+                        if (ext == extension) {
+                            dir += pathSep + category
+                            break main
+                        }
+                    }
+                }
+            }
+            chrome.downloads.search({id: item.id}, items => {
+                item = items[0]
+                addItem(item.id, item.finalUrl, dir)
+            })
         })
     }
-}
-
-chrome.downloads.onChanged.addListener(getFilename)
-chrome.downloads.download({url: 'data:,'})
+})
 

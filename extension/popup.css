@@ -103,6 +103,7 @@ select:focus {
 }
 
 textarea {
+
     width: 96%;
     height: 10em;
 }
