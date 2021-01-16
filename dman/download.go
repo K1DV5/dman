@@ -28,9 +28,9 @@ const (
 	MOVING_AVG_LEN = 5
 	// download states
 	S_DOWNLOADING = 0
-	S_STOPPING = 1
-	S_FAILING = 2
-	S_REBUILDING = 3
+	S_STOPPING    = 1
+	S_FAILING     = 2
+	S_REBUILDING  = 3
 )
 
 var (
@@ -83,15 +83,15 @@ func readableSize(length int64) (float64, string) {
 
 type downJob struct {
 	offset, length, received, lastReceived, eta int64
-	body                     io.ReadCloser
-	file                     *os.File
-	bufLenCh chan int64
-	err                      error
+	body                                        io.ReadCloser
+	file                                        *os.File
+	bufLenCh                                    chan int64
+	err                                         error
 }
 
 type checkJob struct {
 	received int64
-	job *downJob
+	job      *downJob
 }
 
 type Download struct {
@@ -106,7 +106,7 @@ type Download struct {
 	// Dynamically set:
 	filename  string
 	length    int64
-	checkJob chan checkJob
+	checkJob  chan checkJob
 	jobDone   chan *downJob
 	jobs      map[int64]*downJob
 	jobsDone  []*downJob
@@ -271,9 +271,10 @@ func (down *Download) coordinate() {
 	}
 	for {
 		select {
-		case check := <- down.checkJob:
+		case check := <-down.checkJob:
 			check.job.received += check.received
 			if state != S_DOWNLOADING {
+				// clean up already completed
 				continue
 			}
 			if check.job.received < check.job.length {
@@ -282,7 +283,7 @@ func (down *Download) coordinate() {
 					bufLen = remaining
 				}
 				check.job.bufLenCh <- bufLen
-			} else {
+			} else {  // clean up
 				check.job.body.Close()
 				close(check.job.bufLenCh)
 			}
@@ -321,7 +322,7 @@ func (down *Download) coordinate() {
 					return
 				}
 				// finished downloading, start rebuilding
-				if down.length < -1 {  // length was unknown, now known
+				if down.length < 0 { // length was unknown, now known
 					down.length = job.length
 				}
 				state = S_REBUILDING
@@ -357,22 +358,29 @@ func (down *Download) coordinate() {
 			timer.Reset(STAT_INTERVAL)
 		case jobs := <-down.insertJob:
 			job, longest := jobs[0], jobs[1]
-			if down.jobs[longest.offset] != nil && job.err == nil { // still in progress
-				file, err := os.Create(filepath.Join(down.dir, PART_DIR_NAME, fmt.Sprintf("%s.%d", down.filename, job.offset)))
-				if err == nil {
-					job.file = file
-					down.initJob(job)
-					go down.download(job)
-					// add this job to the collection
-					down.jobs[job.offset] = job
-					// subtract length from the helped job
-					longest.length -= job.length
-					if longest.received > longest.length {
-						longest.file.Truncate(int64(longest.length))
+			if state != S_DOWNLOADING {
+				job.body.Close()
+				continue
+			}
+			if job.err == nil {
+				if longest.received < longest.length - job.length { // still in progress
+					file, err := os.Create(filepath.Join(down.dir, PART_DIR_NAME, fmt.Sprintf("%s.%d", down.filename, job.offset)))
+					if err == nil {
+						job.file = file
+						down.initJob(job)
+						go down.download(job)
+						// add this job to the collection
+						down.jobs[job.offset] = job
+						// subtract length from the helped job
+						longest.length -= job.length
+					} else {
+						job.body.Close()
 					}
+				} else {
+					job.body.Close()
 				}
 			}
-			if state == S_DOWNLOADING && len(down.jobs) < down.maxConns {
+			if len(down.jobs) < down.maxConns {
 				addingJobLock = down.addJob() == nil
 			} else {
 				addingJobLock = false
@@ -537,9 +545,9 @@ func (down *Download) resume(progressFile string) (err error) {
 }
 
 type progress struct {
-	Id       int              `json:"id"`
-	Url      string           `json:"url"`
-	Filename string           `json:"filename"`
+	Id       int                `json:"id"`
+	Url      string             `json:"url"`
+	Filename string             `json:"filename"`
 	Parts    []map[string]int64 `json:"parts"`
 }
 
@@ -554,7 +562,7 @@ func newDownload(url string, maxConns int, id int, dir string) *Download {
 		stop:       make(chan os.Signal),
 		emitStatus: make(chan status, 1), // buffered to bypass emitting if no consumer and continue updating, coordinate()
 		insertJob:  make(chan [2]*downJob),
-		checkJob: make(chan checkJob, 10),
+		checkJob:   make(chan checkJob, 10),
 		jobDone:    make(chan *downJob),
 	}
 	return &down

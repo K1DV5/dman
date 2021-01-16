@@ -66,7 +66,7 @@ type downloads struct {
 	collection map[int]*Download
 	addChan    chan message
 	message    chan message
-	insert chan *Download
+	insert     chan *Download
 }
 
 func (downs *downloads) addDownload() {
@@ -76,20 +76,22 @@ func (downs *downloads) addDownload() {
 			Type: "new",
 			Id:   info.Id,
 		}
-		var err error
+		var errMsg string
 		if info.Url == "" {
 			// resuming, set url & filename as well
-			err = down.resume(filepath.Join(info.Dir, PART_DIR_NAME, info.Filename+PROG_FILE_EXT))
-		} else {
+			if err := down.resume(filepath.Join(info.Dir, PART_DIR_NAME, info.Filename+PROG_FILE_EXT)); err != nil {
+				errMsg = fmt.Sprintf("\rResume error: %s", err.Error())
+			}
+		} else if err := down.start(); err != nil {
 			// new download, set filename as well
-			err = down.start()
+			errMsg = fmt.Sprintf("\rStart error: %s", err.Error())
 		}
-		if err != nil {
-			msg.Error = err.Error()
+		if errMsg == "" {
+			downs.insert <- down
+		} else {
+			msg.Error = errMsg
 			msg.send()
-			continue
 		}
-		downs.insert <- down
 	}
 }
 
@@ -169,6 +171,7 @@ func (downs *downloads) finishInsertDown(down *Download, completed chan complete
 		Type:     "new",
 		Id:       down.id,
 		Url:      down.url,
+		Dir:      down.dir,
 		Filename: down.filename,
 		Size:     size,
 	}.send()
@@ -231,7 +234,7 @@ func extension() {
 		addChan:    make(chan message, 10),
 		collection: map[int]*Download{},
 		message:    make(chan message),
-		insert: make(chan *Download),
+		insert:     make(chan *Download),
 	}
 	downs.listen()
 }
