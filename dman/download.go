@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -26,13 +25,12 @@ const (
 	LONG_TIME      = 3 * 24 * int(time.Hour) // 3 days, arbitrarily large duration
 	PART_DIR_NAME  = ".dman"
 	PROG_FILE_EXT  = ".dman"
-	MOVING_AVG_LEN = 3
-	// message order types
-	O_STAT         = 0
-	O_PARAMS       = 1
-	O_LENGTH       = 2
-	O_COMP_PHOLDER = -1
-	O_STOP         = -2
+	MOVING_AVG_LEN = 5
+	// download states
+	S_DOWNLOADING = 0
+	S_STOPPING = 1
+	S_FAILING = 2
+	S_REBUILDING = 3
 )
 
 var (
@@ -64,7 +62,7 @@ func getFilename(resp *http.Response) string {
 	return filename
 }
 
-func readableSize(length int) (float64, string) {
+func readableSize(length int64) (float64, string) {
 	var value = float64(length)
 	var unit string
 	switch {
@@ -83,37 +81,12 @@ func readableSize(length int) (float64, string) {
 	return value, unit
 }
 
-func movingAvg(hist *[MOVING_AVG_LEN]int, newVal int) int {
-	var avg int
-	for i, h := range hist[1:] {
-		hist[i] = h
-		avg += h
-	}
-	hist[len(*hist)-1] = newVal
-	return (avg + newVal) / len(*hist)
-}
-
-type jobMsg struct {
-	offset   int
-	received int
-	eta      int
-	length   int
-	order    int
-	duration int
-	speed    int
-}
-
 type downJob struct {
-	offset, length, received int
+	offset, length, received, lastReceived, eta int64
 	body                     io.ReadCloser
 	file                     *os.File
-	msg                      chan jobMsg
+	bufLenCh chan int64
 	err                      error
-}
-
-type readResult struct {
-	n int
-	err error
 }
 
 type Download struct {
@@ -127,57 +100,62 @@ type Download struct {
 	emitStatus chan status
 	// Dynamically set:
 	filename  string
-	length    int
+	length    int64
+	checkJob chan *downJob
 	jobDone   chan *downJob
-	jobStat   chan jobMsg
-	jobParams chan jobMsg
-	jobs      map[int]*downJob
+	jobs      map[int64]*downJob
 	jobsDone  []*downJob
 	insertJob chan [2]*downJob
 	stop      chan os.Signal
 }
 
-func (down *Download) getResponse(job *downJob) (*http.Response, error) {
+func (down *Download) getResponse(job *downJob) *http.Response {
 	req, _ := http.NewRequest("GET", down.url, nil)
 	if job.length > 0 { // unknown length, probably additional connection
 		// request partial content
-		req.Header.Add("Range", "bytes="+strconv.Itoa(job.offset+job.received)+"-"+strconv.Itoa(job.offset+job.length-1))
+		req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", job.offset+job.received, job.offset+job.length-1))
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
-	} else if job.length > 0 && resp.StatusCode != 206 { // partial content
+		job.err = err
+		return nil
+	} else if job.length > 0 && resp.StatusCode != 206 { // partial content requested
 		resp.Body.Close()
 		if resp.StatusCode == 200 {
-			return nil, notResumableError
+			job.err = notResumableError
 		} else {
-			return nil, fmt.Errorf("Connection error: %s", resp.Status)
+			job.err = fmt.Errorf("Connection error: %s", resp.Status)
 		}
+		return nil
 	} else if job.length == 0 { // full content, probably for first connection
 		if resp.StatusCode != 200 {
 			resp.Body.Close()
-			return nil, fmt.Errorf("Bad response: %s", resp.Status)
+			job.err = fmt.Errorf("Bad response: %s", resp.Status)
+			return nil
 		}
 		if job.received == 0 { // not resumed
-			job.length = int(resp.ContentLength)
+			job.length = resp.ContentLength
 		}
 	}
 	job.body = resp.Body
-	job.msg = make(chan jobMsg, 2) // for stat and params
-	return resp, nil
+	return resp
 }
 
-func (down *Download) updateStatus() func(int) {
-	var speedHist [MOVING_AVG_LEN]int
-	return func(duration int) {
-		var written, speed int
+func (down *Download) updateStatus() func(int64) {
+	var speedHist [MOVING_AVG_LEN]int64
+	return func(duration int64) {
+		var written int64
+		var speed int64
 		for _, job := range down.jobs {
-			job.msg <- jobMsg{order: O_STAT, duration: duration}
-		}
-		for i := 0; i < len(down.jobs); i++ {
-			param := <-down.jobStat
-			written += param.received
-			speed += param.speed
+			jobSpeed := (job.received - job.lastReceived) * int64(time.Second) / duration // per second
+			if jobSpeed == 0 {
+				job.eta = int64(LONG_TIME)
+			} else {
+				job.eta = (job.length - job.received) / jobSpeed // in seconds
+			}
+			job.lastReceived = job.received
+			written += job.received
+			speed += jobSpeed
 		}
 		for _, job := range down.jobsDone { // take the completed into account
 			written += job.length
@@ -190,11 +168,19 @@ func (down *Download) updateStatus() func(int) {
 		if speed == 0 {
 			eta = "LongTime"
 		} else {
-			etaVal := (down.length - written) * int(time.Second) / speed
+			etaVal := (down.length - written) * int64(time.Second) / speed
 			eta = time.Duration(etaVal).Round(time.Second).String()
 		}
-		speedVal, sUnit := readableSize(int(movingAvg(&speedHist, speed)))
-		writtenVal, wUnit := readableSize(int(written))
+		// moving average speed
+		var avgSpeed int64
+		for i, sp := range speedHist[1:] {
+			speedHist[i] = sp
+			avgSpeed += sp
+		}
+		speedHist[len(speedHist)-1] = speed
+		avgSpeed = (avgSpeed + speed) / int64(len(speedHist))
+		speedVal, sUnit := readableSize(avgSpeed)
+		writtenVal, wUnit := readableSize(written)
 		var percent float64
 		if down.length > 0 {
 			percent = float64(written) / float64(down.length) * 100
@@ -212,37 +198,53 @@ func (down *Download) updateStatus() func(int) {
 
 func (down *Download) addJob() error {
 	var longest *downJob // connection having the longest undownloaded part
-	var longestParams jobMsg
-	longestFree := 0
+	var longestFree int64
 	for _, job := range down.jobs {
-		job.msg <- jobMsg{order: O_PARAMS} // get length
-	}
-	for i := 0; i < len(down.jobs); i++ {
-		// select not necessary here as down.jobParams will be closed and longest will be nil
-		params := <-down.jobParams
-		free := params.length - params.received // not yet downloaded
+		free := job.length - job.received // not yet downloaded
 		if free > longestFree {
-			longest = down.jobs[params.offset]
+			longest = down.jobs[job.offset]
 			longestFree = free
-			longestParams = params
 		}
 	}
-	if longest == nil || longestParams.eta < MIN_CUT_ETA {
+	if longest == nil || longest.eta < MIN_CUT_ETA {
 		return noSplitError
 	}
 	newLen := longestFree / 2
 	newJob := &downJob{
-		offset: longestParams.offset + longestParams.length - newLen,
+		offset: longest.offset + longest.length - newLen,
 		length: newLen,
 	}
 	go func() {
-		_, err := down.getResponse(newJob)
-		if err != nil {
-			newJob.err = err
-		}
+		down.getResponse(newJob)
 		down.insertJob <- [2]*downJob{newJob, longest}
 	}()
 	return nil
+}
+
+func (down *Download) initJob(job *downJob) {
+	// to receive buffer length from down.coordinate()
+	job.bufLenCh = make(chan int64, 1)
+	// so that down.addJob() doesn't skip this if the eta is 0
+	job.eta = int64(LONG_TIME)
+}
+
+func (down *Download) download(job *downJob) {
+	bufLen := LEN_CHECK
+	if job.length < int64(bufLen) {
+		bufLen = int(job.length)
+	}
+	// kicksart the communication
+	down.checkJob <- job
+	for bufLen := range job.bufLenCh {
+		written, err := io.CopyN(job.file, job.body, bufLen)
+		job.received += written
+		if err != nil {
+			job.err = err
+			break
+		}
+		down.checkJob <- job
+	}
+	down.jobDone <- job
 }
 
 func (down *Download) coordinate() {
@@ -251,19 +253,33 @@ func (down *Download) coordinate() {
 	defer close(down.jobDone)
 	defer close(down.err)
 	defer close(down.stop)
-	defer close(down.jobStat)
-	defer close(down.jobParams)
+	defer close(down.checkJob)
 	lastTime := time.Now()
 	timer := time.NewTimer(STAT_INTERVAL)
 	updateStat := down.updateStatus()
 	var mainError error
-	var rebuilding, addingJobLock bool
+	var addingJobLock bool
+	state := S_DOWNLOADING
 	if down.maxConns > 1 {
 		// add other conns
 		addingJobLock = down.addJob() == nil
 	}
 	for {
 		select {
+		case job := <- down.checkJob:
+			if state != S_DOWNLOADING {
+				continue
+			}
+			if job.received < job.length {
+				bufLen := int64(LEN_CHECK)
+				if remaining := job.length - job.received; remaining < bufLen {
+					bufLen = remaining
+				}
+				job.bufLenCh <- bufLen
+			} else {
+				job.body.Close()
+				close(job.bufLenCh)
+			}
 		case job := <-down.jobDone:
 			if job.offset < 0 { // finished rebuilding
 				down.err <- job.err
@@ -271,17 +287,20 @@ func (down *Download) coordinate() {
 			}
 			delete(down.jobs, job.offset)
 			down.jobsDone = append(down.jobsDone, job)
-			close(job.msg)
-			failed := job.err != nil && job.err != pausedError
+			failed := job.err != nil && state == S_DOWNLOADING
 			if failed {
 				mainError = job.err
 			}
 			if len(down.jobs) == 0 {
 				if addingJobLock {
 					// flush the new one
-					<-down.insertJob
+					jobs := <-down.insertJob
+					jobs[0].body.Close()
 				}
-				if job.err != nil && mainError == nil { // no previous errors
+				if state == S_STOPPING {
+					mainError = pausedError
+				} else if state != S_FAILING && job.err != nil && mainError == nil {
+					// no previous errors, record this one
 					mainError = job.err
 				}
 				if mainError != nil { // finished pausing or failing
@@ -296,19 +315,24 @@ func (down *Download) coordinate() {
 					return
 				}
 				// finished downloading, start rebuilding
-				down.rebuild()
-				rebuilding = true
-			} else if failed { // failed
-				for _, job := range down.jobs { // start pausing others
-					job.msg <- jobMsg{order: O_STOP}
+				if down.length < -1 {  // length was unknown, now known
+					down.length = job.length
 				}
-			} else if !addingJobLock && len(down.jobs) < down.maxConns {
+				state = S_REBUILDING
+				down.rebuild()
+			} else if failed { // failed
+				state = S_FAILING
+				for _, job := range down.jobs { // start pausing others
+					job.body.Close()
+					close(job.bufLenCh)
+				}
+			} else if state == S_DOWNLOADING && !addingJobLock && len(down.jobs) < down.maxConns {
 				addingJobLock = down.addJob() == nil
 			}
 		case now := <-timer.C: // status update time
-			duration := int(now.Sub(lastTime))
+			duration := int64(now.Sub(lastTime))
 			lastTime = now
-			if rebuilding { // finished downloading, rebuilding
+			if state == S_REBUILDING {
 				stat, err := down.jobsDone[0].file.Stat()
 				if err != nil {
 					down.err <- nil // maybe rebuilding finished already
@@ -328,175 +352,55 @@ func (down *Download) coordinate() {
 		case jobs := <-down.insertJob:
 			job, longest := jobs[0], jobs[1]
 			if down.jobs[longest.offset] != nil && job.err == nil { // still in progress
-				file, err := os.Create(filepath.Join(down.dir, PART_DIR_NAME, down.filename+"."+strconv.Itoa(job.offset)))
+				file, err := os.Create(filepath.Join(down.dir, PART_DIR_NAME, fmt.Sprintf("%s.%d", down.filename, job.offset)))
 				if err == nil {
 					job.file = file
+					down.initJob(job)
+					go down.download(job)
 					// add this job to the collection
 					down.jobs[job.offset] = job
-					// subtract length
-					longest.msg <- jobMsg{
-						order:  O_LENGTH,
-						length: job.length,
+					// subtract length from the helped job
+					longest.length -= job.length
+					if longest.received > longest.length {
+						longest.file.Truncate(int64(longest.length))
 					}
-					go down.download(job)
 				}
 			}
-			if len(down.jobs) < down.maxConns {
+			if state == S_DOWNLOADING && len(down.jobs) < down.maxConns {
 				addingJobLock = down.addJob() == nil
 			} else {
 				addingJobLock = false
 			}
 		case <-down.stop:
-			if rebuilding {
-				continue
-			}
-			for _, job := range down.jobs { // start pausing
-				job.msg <- jobMsg{order: O_STOP}
-			}
-		}
-	}
-}
-
-func (down *Download) handleMsg(job *downJob) func(jobMsg) {
-	var lastReceived, speed, eta int
-	eta = LONG_TIME
-	overDestChans := [2]chan jobMsg{down.jobStat, down.jobParams}
-	return func(msg jobMsg) {
-		toSend := jobMsg{
-			received: job.received,
-			length:   job.length,
-		}
-		if msg.order == O_STAT { // get status
-			speed = (job.received - lastReceived) * int(time.Second) / msg.duration // per second
-			if speed == 0 {
-				eta = LONG_TIME
-			} else {
-				eta = (job.length - job.received) / speed // in seconds
-			}
-			toSend.speed = speed
-			toSend.eta = eta
-			down.jobStat <- toSend
-			lastReceived = job.received
-		} else if msg.order == O_PARAMS { // get params for adding and such
-			toSend.offset = job.offset
-			toSend.eta = eta
-			down.jobParams <- toSend
-		} else if msg.order == O_LENGTH { // subtract length
-			eta = eta * (job.length - msg.length - job.received) / (job.length - job.received)
-			job.length -= msg.length
-			if job.received >= job.length {
-				job.file.Truncate(int64(job.length))
-				job.length = job.received
-			}
-		} else if msg.order == O_COMP_PHOLDER && msg.offset != O_STOP {
-			// just until over message is accepted, stat or params
-			if msg.offset > 1 {
-				return
-			}
-			overDestChans[msg.offset] <- toSend
-		}
-	}
-}
-
-func (down *Download) readBody(body io.ReadCloser, buffer []byte, bufLenCh chan int, resCh chan readResult) {
-	defer close(resCh)
-	for bufLen := range bufLenCh {
-		n, err := body.Read(buffer[:bufLen])  // can be interrupted by closing job.body
-		resCh <- readResult{
-			n: n,
-			err: err,
-		}
-	}
-}
-
-func (down *Download) download(job *downJob) {
-	handleMsg := down.handleMsg(job)
-	bufLenCh := make(chan int, 1)
-	defer close(bufLenCh)
-	readCh := make(chan readResult)
-	var buffer [LEN_CHECK]byte
-	go down.readBody(job.body, buffer[:], bufLenCh, readCh)
-	bufLen := LEN_CHECK
-	// to start the reading
-	bufLenCh <- 0
-	downLoop: for {
-		select {
-		case msg := <-job.msg:
-			handleMsg(msg)
-			if msg.order == O_STOP {
-				job.err = pausedError
-				break downLoop
-			} else if job.received == job.length {
-				break downLoop
-			}
-		case readRes := <-readCh:  // continue reading
-			// code adapted from io source
-			if readRes.n > 0 {
-				nWrote, errW := job.file.Write(buffer[:readRes.n])
-				if nWrote > 0 {
-					job.received += nWrote
-					if job.received == job.length {  // finished
-						break downLoop
-					}
-				}
-				if errW != nil {
-					job.err = errW
-					break downLoop
-				}
-				if readRes.n != nWrote {
-					job.err = io.ErrShortWrite
-					break downLoop
+			if state == S_DOWNLOADING {
+				state = S_STOPPING
+				for _, job := range down.jobs { // start pausing
+					job.body.Close()
+					close(job.bufLenCh)
 				}
 			}
-			if readRes.err != nil {
-				if readRes.err == io.EOF { // unknown length, now known
-					job.length = job.received
-				} else {
-					job.err = readRes.err
-				}
-				break downLoop
-			}
-			if remaining := job.length - job.received; remaining < bufLen {
-				bufLen = remaining
-			}
-			bufLenCh <- bufLen
-		}
-	}
-	job.body.Close()
-	// continue responding to messages until done message is received
-	for {
-		select {
-		case down.jobDone <- job:
-			return
-		case msg := <-job.msg:
-			// to indicate that the job is done and prevent stat calculation
-			msg.order, msg.offset = O_COMP_PHOLDER, msg.order
-			handleMsg(msg)
 		}
 	}
 }
 
 func (down *Download) start() error {
-	os.Mkdir(filepath.Join(down.dir, PART_DIR_NAME), 666)
 	firstJob := &downJob{}
-	resp, err := down.getResponse(firstJob)
-	if err != nil {
-		return err
+	resp := down.getResponse(firstJob)
+	if firstJob.err != nil {
+		return firstJob.err
 	}
-	if down.filename == "" {
-		// get filename
-		down.filename = getFilename(resp)
-	}
+	// get filename
+	down.filename = getFilename(resp)
+	os.Mkdir(filepath.Join(down.dir, PART_DIR_NAME), 666)
 	file, err := os.Create(filepath.Join(down.dir, PART_DIR_NAME, down.filename+".0"))
 	if err != nil {
 		return err
 	}
 	firstJob.file = file
+	down.initJob(firstJob)
 	down.length = firstJob.length
 	down.jobs[0] = firstJob
-	if down.length > 0 { // if the length is known, begin adding more connections
-		go down.download(firstJob)
-	}
+	go down.download(firstJob)
 	go down.coordinate()
 	return nil
 }
@@ -546,7 +450,7 @@ func (down *Download) saveProgress() error {
 		Filename: down.filename,
 	}
 	for _, job := range down.jobsDone {
-		connProg := map[string]int{
+		connProg := map[string]int64{
 			"offset":   job.offset,
 			"length":   job.length,
 			"received": job.received,
@@ -589,7 +493,7 @@ func (down *Download) resume(progressFile string) (err error) {
 			length:   job["length"],
 			received: job["received"],
 		}
-		fname := filepath.Join(down.dir, PART_DIR_NAME, down.filename+"."+strconv.Itoa(newJob.offset))
+		fname := filepath.Join(down.dir, PART_DIR_NAME, fmt.Sprintf("%s.%d", down.filename, newJob.offset))
 		file, err := os.OpenFile(fname, os.O_APPEND, 755)
 		if err != nil {
 			return err
@@ -605,8 +509,8 @@ func (down *Download) resume(progressFile string) (err error) {
 	// make requests
 	requestErr := make(chan error)
 	request := func(job *downJob) {
-		_, err := down.getResponse(job)
-		requestErr <- err
+		down.getResponse(job)
+		requestErr <- job.err
 	}
 	for _, job := range down.jobs {
 		go request(job)
@@ -618,6 +522,7 @@ func (down *Download) resume(progressFile string) (err error) {
 		}
 	}
 	for _, job := range down.jobs {
+		down.initJob(job)
 		go down.download(job)
 	}
 	go down.coordinate()
@@ -629,24 +534,22 @@ type progress struct {
 	Id       int              `json:"id"`
 	Url      string           `json:"url"`
 	Filename string           `json:"filename"`
-	Parts    []map[string]int `json:"parts"`
+	Parts    []map[string]int64 `json:"parts"`
 }
 
-func newDownload(url string, maxConns int, id int, dir string, filename string) *Download {
+func newDownload(url string, maxConns int, id int, dir string) *Download {
 	down := Download{
 		id:         id,
 		url:        url,
 		dir:        dir,
 		maxConns:   maxConns,
-		filename:   filename,
-		jobs:       map[int]*downJob{},
+		jobs:       map[int64]*downJob{},
 		err:        make(chan error),
 		stop:       make(chan os.Signal),
 		emitStatus: make(chan status, 1), // buffered to bypass emitting if no consumer and continue updating, coordinate()
 		insertJob:  make(chan [2]*downJob),
+		checkJob: make(chan *downJob, 10),
 		jobDone:    make(chan *downJob),
-		jobStat:    make(chan jobMsg, maxConns),
-		jobParams:  make(chan jobMsg, maxConns),
 	}
 	return &down
 }

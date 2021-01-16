@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
-	"io"
 )
 
 var byteOrder = binary.LittleEndian // most likely
@@ -68,12 +66,12 @@ type downloads struct {
 	collection map[int]*Download
 	addChan    chan message
 	message    chan message
-	insert     chan *Download
+	insert chan *Download
 }
 
 func (downs *downloads) addDownload() {
 	for info := range downs.addChan {
-		down := newDownload(info.Url, info.Conns, info.Id, info.Dir, info.Filename)
+		down := newDownload(info.Url, info.Conns, info.Id, info.Dir)
 		msg := message{
 			Type: "new",
 			Id:   info.Id,
@@ -93,28 +91,6 @@ func (downs *downloads) addDownload() {
 		}
 		downs.insert <- down
 	}
-}
-
-func (downs *downloads) insertDown(down *Download, completed chan completedInfo) {
-	downs.collection[down.id] = down
-	go func() {
-		err := <-down.err
-		completed <- completedInfo{down: down, err: err}
-	}()
-	var size string
-	if down.length > 0 {
-		sizeVal, unit := readableSize(down.length)
-		size = fmt.Sprintf("%.2f%s", sizeVal, unit)
-	} else {
-		size = "Unknown"
-	}
-	message{
-		Type:     "new",
-		Id:       down.id,
-		Url:      down.url,
-		Filename: down.filename,
-		Size:     size,
-	}.send()
 }
 
 func (downs *downloads) sendInfo() bool {
@@ -146,16 +122,9 @@ func (downs *downloads) listen() {
 	go downs.coordinate()
 	for {
 		var msg message
-		if err := msg.get(); err != nil {
-			if err == io.EOF { // shutdown
-				close(downs.message)
-				return
-			}
-			message{
-				Type: "error",
-				Error: err.Error(),
-			}.send()
-			continue
+		if err := msg.get(); err != nil { // shutdown
+			close(downs.message)
+			return
 		}
 		downs.message <- msg
 	}
@@ -174,10 +143,6 @@ func (downs *downloads) handleMsg(msg message) {
 		for _, down := range downs.collection {
 			go pause(down)
 		}
-	case "remove":
-		go downs.remove(msg)
-	case "open":
-		go startFile(filepath.Join(msg.Dir, msg.Filename))  // platform dependent
 	default:
 		message{
 			Type:  "error",
@@ -185,6 +150,28 @@ func (downs *downloads) handleMsg(msg message) {
 		}.send()
 	}
 
+}
+
+func (downs *downloads) finishInsertDown(down *Download, completed chan completedInfo) {
+	downs.collection[down.id] = down
+	go func() {
+		err := <-down.err
+		completed <- completedInfo{down: down, err: err}
+	}()
+	var size string
+	if down.length > 0 {
+		sizeVal, unit := readableSize(down.length)
+		size = fmt.Sprintf("%.2f%s", sizeVal, unit)
+	} else {
+		size = "Unknown"
+	}
+	message{
+		Type:     "new",
+		Id:       down.id,
+		Url:      down.url,
+		Filename: down.filename,
+		Size:     size,
+	}.send()
 }
 
 func (downs *downloads) handleCompleted(info completedInfo) {
@@ -198,31 +185,6 @@ func (downs *downloads) handleCompleted(info completedInfo) {
 		msg.Type = "failed"
 		msg.Error = info.err.Error()
 	}
-	msg.send()
-}
-
-func (downs *downloads) remove(info message) {
-	msg := message{Id: info.Id, Type: "remove"}
-	f, err := os.Open(filepath.Join(info.Dir, PART_DIR_NAME, info.Filename+PROG_FILE_EXT))
-	if err != nil {
-		msg.Error = err.Error()
-		msg.send()
-		return
-	}
-	var prog progress
-	if err := json.NewDecoder(f).Decode(&prog); err != nil {
-		msg.Error = err.Error()
-		msg.send()
-		return
-	}
-	f.Close()
-	os.Remove(f.Name())
-	for _, part := range prog.Parts {
-		fname := filepath.Join(info.Dir, PART_DIR_NAME, info.Filename+"."+strconv.Itoa(part["offset"]))
-		os.Remove(fname)
-	}
-	os.Remove(filepath.Join(info.Dir, PART_DIR_NAME))
-	msg.Id = prog.Id
 	msg.send()
 }
 
@@ -257,7 +219,7 @@ func (downs *downloads) coordinate() {
 				sendingInfo = false
 			}
 		case down := <-downs.insert:
-			downs.insertDown(down, completed)
+			downs.finishInsertDown(down, completed)
 		case info := <-completed:
 			downs.handleCompleted(info)
 		}
@@ -269,7 +231,7 @@ func extension() {
 		addChan:    make(chan message, 10),
 		collection: map[int]*Download{},
 		message:    make(chan message),
-		insert:     make(chan *Download),
+		insert: make(chan *Download),
 	}
 	downs.listen()
 }
