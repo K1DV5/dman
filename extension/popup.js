@@ -127,8 +127,7 @@ function update(ids) {
 }
 
 function commitUrl() {
-    // list.deleteCaption()
-    bg.addItem(urlInput.value)
+    chrome.downloads.download({url: urlInput.value})
     resetUrl()
 }
 
