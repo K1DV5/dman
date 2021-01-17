@@ -135,8 +135,8 @@ let handlers = {
 
     new: message => {
         if (message.error) {
-            chrome.downloads.erase({id: message.id})
-            return alert(message.error)
+            chrome.downloads.resume(message.id)
+            return alert(message.error + "\nContinuing in Downloads...")
         }
         let popup = chrome.extension.getViews({type: 'popup'})[0]
         if (downloads[message.id] == undefined) {  // new download
@@ -232,7 +232,7 @@ let handlers = {
     },
 
     error: message => {
-        alert('Error:', message.error)
+        alert('Error:' + message.error)
     },
 
     default: message => {
@@ -252,6 +252,10 @@ let pathSep = navigator.platform == 'Win32' ? '\\' : '/'
 
 chrome.downloads.onChanged.addListener(item => {
     if (item.filename) {
+        if (downloads[item.id] != undefined) {
+            alert('There is an existing download with the same id:\n' + downloads[item.id].filename + '\nContinuing in Downloads...')
+            return
+        }
         chrome.downloads.pause(item.id, () => {
             // find the dir
             let fpath = item.filename.current
