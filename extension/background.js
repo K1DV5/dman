@@ -140,8 +140,15 @@ let handlers = {
 
     new: message => {
         if (message.error) {
-            chrome.downloads.resume(message.id)
-            return alert(message.error + "\nContinuing in Downloads...")
+            if (downloadsPending[message.id] != undefined) {
+                chrome.downloads.search({id: downloadsPending[message.id].id}, item => {
+                    chrome.downloads.resume(item.id)
+                    alert(message.error + "\nContinuing in Downloads...")
+                })
+            } else {
+                alert(message.error)
+            }
+            return
         }
         let popup = chrome.extension.getViews({type: 'popup'})[0]
         if (downloads[message.id] == undefined) {  // new download
@@ -156,7 +163,7 @@ let handlers = {
                 conns: 0,
                 speed: '...',
                 eta: '...',
-                date: new Date().toLocaleDateString(),
+                date: Date.now(),
                 icon: downloadsPending[message.id].icon,
             }
             downloads[message.id] = download
@@ -185,6 +192,9 @@ let handlers = {
         chrome.extension.getViews({type: 'popup'})[0]?.update(message.id)  // popup.update
         chrome.storage.local.set({downloads})
         updateBadge()
+        if (message.error != undefined) {
+            alert(message.error)
+        }
     },
 
     failed: message => {

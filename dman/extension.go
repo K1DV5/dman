@@ -78,14 +78,14 @@ func (downs *downloads) addDownload() {
 			Id:   info.Id,
 		}
 		var errMsg string
-		// create dir if it doesn't exist
-		os.Mkdir(info.Dir, 666)
 		if info.Url == "" {
 			// resuming, set url & filename as well
-			if err := down.resume(filepath.Join(info.Dir, PART_DIR_NAME, info.Filename+PROG_FILE_EXT)); err != nil {
+			if err := down.resume(filepath.Join(info.Dir, PART_DIR_NAME, fmt.Sprintf("%s.%d%s", info.Filename, info.Id, PROG_FILE_EXT))); err != nil {
 				errMsg = fmt.Sprintf("\rResume error: %s", err.Error())
 			}
 		} else if err := down.start(); err != nil {
+			// create dir if it doesn't exist
+			os.Mkdir(info.Dir, 666)
 			// new download, set filename as well
 			errMsg = fmt.Sprintf("\rStart error: %s", err.Error())
 		}
@@ -143,17 +143,23 @@ func (downs *downloads) listen() {
 func (downs *downloads) handleMsg(msg message) {
 	switch msg.Type {
 	case "pause":
-		downs.collection[msg.Id].stop <- os.Interrupt
+		down := downs.collection[msg.Id]
+		if down == nil {
+			message{
+				Type: "pause",
+				Id: msg.Id,
+				Error: "Download not in progress.",
+			}.send()
+		} else {
+			downs.collection[msg.Id].stop <- os.Interrupt
+		}
 	case "remove":
 		go downs.remove(msg)
 	case "new":
 		downs.addChan <- msg
 	case "pause-all":
-		pause := func(down *Download) {
-			down.stop <- os.Interrupt
-		}
 		for _, down := range downs.collection {
-			go pause(down)
+			down.stop <- os.Interrupt
 		}
 	case "open":
 		go startFile(filepath.Join(msg.Dir, msg.Filename))  // platform dependent
@@ -240,8 +246,13 @@ func (downs *downloads) coordinate(kill chan bool) {
 		select {
 		case msg, ok := <-downs.message:
 			if !ok {
+				if len(downs.collection) == 0 {
+					return
+				}
 				stopping = true
-				return
+				for _, down := range downs.collection {
+					down.stop <- os.Interrupt
+				}
 			} else if msg.Type == "info" {
 				sendingInfo = msg.Info
 				if sendingInfo {
