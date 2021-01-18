@@ -14,15 +14,17 @@ import (
 
 func showProgress(statusChan chan status) {
 	// max width stat:
-	// 100.00% 1004.34KB/s x32 10d23h21m23s
+	// 100.00% 1004.43MB 1004.34KB/s x32 10d23h21m23s
 	// min width stat:
-	// 1.00% 1.34KB/s x2 3s
-	// variation space: 16
+	// 1.00% 1.22MB 1.34KB/s x2 3s
+	// Rebuilding stat:
+	// Rebuilding 44.33%
+	// variation space: normal: 19, rebuilding: 29
 	for stat := range statusChan {
 		if stat.Rebuilding {
-			fmt.Printf("\rRebuilding %.0f%%"+strings.Repeat(" ", 19), stat.Percent)
+			fmt.Printf("\rRebuilding %.0f%%"+strings.Repeat(" ", 29), stat.Percent)
 		} else {
-			fmt.Printf("\r%.2f%% %s %s x%d %s"+strings.Repeat(" ", 16), stat.Percent, stat.Written, stat.Speed, stat.Conns, stat.Eta)
+			fmt.Printf("\r%.2f%% %s %s x%d %s"+strings.Repeat(" ", 19), stat.Percent, stat.Written, stat.Speed, stat.Conns, stat.Eta)
 		}
 	}
 }
