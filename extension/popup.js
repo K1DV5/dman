@@ -6,7 +6,7 @@ window.addEventListener('close', () => bg.switchUpdates(false))
 let lastFocusId
 
 const urlInput = document.getElementById('url')
-const list = document.getElementsByTagName('table')[0]
+const list = document.getElementsByTagName('table')[0].tBodies[0]
 const toolbar = document.getElementById('toolbar')
 
 
@@ -19,47 +19,45 @@ document.getElementById('add').addEventListener('click', () => {
 })
 
 function addRow(data, id) {
-    let row = list.insertRow(1)
+    let row = list.insertRow(0)
     row.setAttribute('tabindex', 0)
-
+    let iconPart = document.createElement('td')
+    row.appendChild(iconPart)
+    let icon = document.createElement('img')
+    iconPart.appendChild(icon)
+    icon.src = data.icon
     let fnamePart = document.createElement('td')
     row.appendChild(fnamePart)
+    fnamePart.innerText = data.filename
     row.id = id
-    if (data.state == bg.S_COMPLETED) { // complete
-        fnamePart.innerText = data.filename
-    } else {
-        let fname = document.createElement('div')
-        fnamePart.appendChild(fname)
-        fname.innerText = data.filename
+    if (data.state != bg.S_COMPLETED) {
         let progress = document.createElement('div')
         fnamePart.appendChild(progress)
         progress.className = 'progress'
-        progress.style.width = data.percent + '%'
-        let info = document.createElement('div')
-        fnamePart.appendChild(info)
-        info.className = 'info'
-        if (data.state == bg.S_REBUILDING) {  // rebuilding
-            progress.style.background = 'lightgreen'
-            info.innerText = 'Rebuilding'
-        } else {
-            info.innerHTML = '<span></span>'.repeat(5)
-            let [percent, written, speed, eta, conns] = info.children
-            if (data.state == bg.S_DOWNLOADING) {  // downloading
-                progress.style.background = 'cyan'
-                percent.innerText = (Math.round(data.percent * 100) / 100) + '%'
-                written.innerText = data.written
-                speed.innerText = data.speed
-                eta.innerText = data.eta
-                conns.innerText = 'x' + data.conns
-            } else if (data.state == bg.S_PAUSED) { // paused
-                progress.style.background = 'orange'
-                percent.innerText = (Math.round(data.percent * 100) / 100) + '%'
-                written.innerText = 'Paused'
-            } else {  // 2, failed
-                progress.style.background = 'red'
-                percent.innerText = (Math.round(data.percent * 100) / 100) + '%'
-                written.innerText = data.error
-            }
+        progress.appendChild(document.createElement('div'))
+        for (let i = 0; i < 5; i++) {
+            progress.appendChild(document.createElement('span'))
+        }
+        let [progressBar, percent, written, speed, eta, conns] = progress.children
+        progressBar.style.width = data.percent + '%'
+        if (data.state == bg.S_REBUILDING) {
+            progressBar.style.background = 'lightgreen'
+            percent.innerText = 'Rebuilding'
+        } else if (data.state == bg.S_DOWNLOADING) {
+            progressBar.style.background = 'cyan'
+            percent.innerText = (Math.round(data.percent * 100) / 100) + '%'
+            written.innerText = data.written
+            speed.innerText = data.speed
+            eta.innerText = data.eta
+            conns.innerText = 'x' + data.conns
+        } else if (data.state == bg.S_PAUSED) {
+            progressBar.style.background = 'orange'
+            percent.innerText = (Math.round(data.percent * 100) / 100) + '%'
+            written.innerText = 'Paused'
+        } else {  // failed
+            progressBar.style.background = 'red'
+            percent.innerText = (Math.round(data.percent * 100) / 100) + '%'
+            written.innerText = data.error
         }
     }
 
@@ -77,51 +75,39 @@ function addRow(data, id) {
 for (let [id, info] of Object.entries(bg.downloads).sort((a, b) => a[1].state < b[1].state ? 1 : -1)) {
     addRow(info, id)
 }
-if (list.rows.length == 1) {
-    let caption = list.createCaption()
-    caption.innerText = 'Downloads appear here.'
-    caption.style.color = '#333'
-}
 
-function update(ids) {
-    for (let id of ids) {
-        let info = bg.downloads[id]
-        let item = document.getElementById(id)
-        if (info.state == bg.S_DOWNLOADING) {  // downloading
-            let [_, progress, infoElm] = item.firstElementChild.children
-            progress.style.background = 'cyan'
-            progress.style.width = info.percent + '%'
-            let [percent, written, speed, eta, conns] = infoElm.children
+function update(id) {
+    let info = bg.downloads[id]
+    let item = document.getElementById(id)
+    let progress = item.children[1].firstElementChild
+    if (info.state == bg.S_COMPLETED) {
+        progress.remove()
+    } else {
+        let [progressBar, percent, written, speed, eta, conns] = progress.children
+        if (info.state == bg.S_REBUILDING) {
+            progressBar.style.background = 'lightgreen'
+            progressBar.style.width = (Math.round(info.percent * 100) / 100) + '%'
+            percent.innerHTML = 'Rebuilding'
+            [written.innerText, speed.innerText, eta.innerText, conns.innerText] = ['', '', '', '']
+        } else if (info.state == bg.S_FAILED) {
+            progressBar.style.background = 'red'
+            percent.innerText = (Math.round(info.percent * 100) / 100) + '%'
+            written.innerText = info.error
+            [speed.innerText, eta.innerText, conns.innerText] = ['', '', '']
+        } else if (info.state == bg.S_PAUSED) {
+            progressBar.style.background = 'orange'
+            percent.innerText = (Math.round(info.percent * 100) / 100) + '%'
+            written.innerText = info.written
+            speed.innerText = 'Paused'
+            [eta.innerText, conns.innerText] = ['', '']
+        } else if (info.state == bg.S_DOWNLOADING) {
+            progressBar.style.background = 'cyan'
+            progressBar.style.width = info.percent + '%'
             percent.innerText = (Math.round(info.percent * 100) / 100) + '%'
             written.innerText = info.written
             speed.innerText = info.speed
             conns.innerText = 'x' + info.conns
             eta.innerText = info.eta
-        } else if (info.state == bg.S_PAUSED) {  // paused
-            let [_, progress, infoElm] = item.firstElementChild.children
-            progress.style.background = 'orange'
-            let [percent, written, speed, eta, conns] = infoElm.children
-            percent.innerText = (Math.round(info.percent * 100) / 100) + '%'
-            written.innerText = info.written
-            speed.innerText = 'Paused'
-            conns.innerText = ''
-            eta.innerText = ''
-        } else if (info.state == bg.S_FAILED) {  // failed
-            let [_, progress, infoElm] = item.firstElementChild.children
-            progress.style.background = 'red'
-            let [percent, written, speed, eta, conns] = infoElm.children
-            percent.innerText = (Math.round(info.percent * 100) / 100) + '%'
-            written.innerText = info.error
-            speed.innerText = ''
-            conns.innerText = ''
-            eta.innerText = ''
-        } else if (info.state == bg.S_REBUILDING) {  // rebuilding
-            let [_, progress, infoElm] = item.firstElementChild.children
-            progress.style.background = 'lightgreen'
-            progress.style.width = (Math.round(info.percent * 100) / 100) + '%'
-            infoElm.innerHTML = 'Rebuilding'
-        } else {  // 4, completed
-            item.firstElementChild.innerHTML = info.filename
         }
     }
 }

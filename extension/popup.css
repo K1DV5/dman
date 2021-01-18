@@ -1,3 +1,11 @@
+
+/************* MAIN *************/
+
+html {
+    width: 30em;
+}
+
+/************* HEADER *************/
 #head {
     display: flex;
     justify-content: space-between;
@@ -10,6 +18,7 @@
     font-weight: bold;
 }
 
+/****************** TOOLBAR ****************/
 input {
     border: solid 1px grey;
     outline-color: grey;
@@ -29,66 +38,85 @@ button:active {
     display: none;
 }
 
-.info {
-    font-size: 80%;
-}
-
-.info > span {
-    display: inline-block;
-    width: 20%;
-}
+/****************** TABLE ****************/
 
 table {
+    table-layout: fixed;
+    width: 100%;
     margin-top: .5em;
     border: solid 1px grey;
     max-height: 85vh;
     overflow-y: auto;
     border-collapse: collapse;
-    width: 36em;
     caption-side: bottom;
 }
 
-table tr:first-child {
+thead {
     background: #8888;
 }
 
-table tr:first-child th:first-child {
-    width: 22em;
+col:first-child {
+    width: 6%;
+}
+
+col:nth-child(2) {
+    width: 54%;
+}
+
+col:nth-child(3) {
+    width: 20%;
+}
+
+col:last-child {
+    width: 20%;
 }
 
 th, td {
-    padding: .3em;
+    padding: .4em .3em;
     max-width: 0;
+}
+
+tbody tr {
+    cursor: pointer;
+    height: 1em;
+}
+
+tbody td {
     white-space: nowrap;
-    overflow: hidden;
-}
-
-tr[tabindex="0"] {
-    cursor: pointer
-}
-
-tr:hover {
-    background: #09F3;
-}
-
-tr:focus {
-    background: #09F8;
-    outline: transparent
+    overflow-x: hidden;
+    text-overflow: ellipsis;
 }
 
 tr:focus td {
-    white-space: initial;
     overflow-wrap: anywhere;
+    white-space: initial;
+    overflow-x: initial
 }
 
-.progress {
+.progress > div {
+    margin-top: .3em;
     height: .1em;
     transition: width 1s;
 }
 
+.progress > span {
+    display: inline-block;
+    font-size: 80%;
+    width: 20%;
+}
+
+tbody tr:hover {
+    background: #09F3;
+}
+
+tbody tr:focus {
+    background: #09F8;
+    outline: transparent
+}
+
 #settings {
     display: none;
-    width: 36em;
+    width: 100%;
     margin-top: .5em;
     border: solid 1px grey;
 }
@@ -103,7 +131,6 @@ select:focus {
 }
 
 textarea {
-
-    width: 96%;
+    width: 100%;
     height: 10em;
 }

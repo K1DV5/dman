@@ -111,9 +111,8 @@ updateBadge()
 
 let handlers = {
     info: message => {
-        let ids = []
+        let popup = chrome.extension.getViews({type: 'popup'})[0]
         for (let stat of message.stats) {
-            ids.push(stat.id)
             let download = downloads[stat.id]
             download.percent = stat.percent
             if (stat.rebuilding) {
@@ -124,11 +123,9 @@ let handlers = {
             download.conns = stat.conns || 0
             download.eta = stat.eta
             download.speed = stat.speed
+            popup?.update(stat.id)
         }
-        let popup = chrome.extension.getViews({type: 'popup'})[0]
-        if (popup) {
-            popup.update(ids)
-        } else {
+        if (popup == undefined) {
             switchUpdates(false)
         }
     },
@@ -144,34 +141,37 @@ let handlers = {
                 if (items.length == 0) {
                     alert('Browser download not found for ' + message.filename)
                 }
-                let download = {
-                    state: S_DOWNLOADING,
-                    url: message.url,
-                    dir: message.dir,
-                    filename: message.filename,
-                    size: message.size,
-                    percent: 0,
-                    written: '...',
-                    conns: 0,
-                    speed: '...',
-                    eta: '...',
-                    date: new Date().toLocaleDateString(),
-                }
-                downloads[message.id] = download
-                if (popup) {
-                    popup.addRow(download, message.id)  // popup.addRow
-                    switchUpdates(true)
-                }
-                updateBadge()
-                chrome.storage.local.set({downloads})
-                chrome.downloads.erase({id: message.id})
+                chrome.downloads.getFileIcon(message.id, {size: 16}, iconUrl => {
+                    let download = {
+                        state: S_DOWNLOADING,
+                        url: message.url,
+                        dir: message.dir,
+                        filename: message.filename,
+                        size: message.size,
+                        percent: 0,
+                        written: '...',
+                        conns: 0,
+                        speed: '...',
+                        eta: '...',
+                        date: new Date().toLocaleDateString(),
+                        icon: iconUrl,
+                    }
+                    downloads[message.id] = download
+                    if (popup) {
+                        popup.addRow(download, message.id)  // popup.addRow
+                        switchUpdates(true)
+                    }
+                    updateBadge()
+                    chrome.storage.local.set({downloads})
+                    chrome.downloads.erase({id: message.id})
+                })
             })
         } else if (downloads[message.id].filename != message.filename) {  // resuming
             alert("Resume error: filenames don't match")
         } else {
             downloads[message.id].state = S_DOWNLOADING
             if (popup) {
-                popup.update([message.id])  // popup.addRow
+                popup.update(message.id)  // popup.addRow
                 switchUpdates(true)
             }
             updateBadge()
@@ -181,7 +181,7 @@ let handlers = {
 
     pause: message => {
         downloads[message.id].state = S_PAUSED
-        chrome.extension.getViews({type: 'popup'})[0]?.update([message.id])  // popup.update
+        chrome.extension.getViews({type: 'popup'})[0]?.update(message.id)  // popup.update
         chrome.storage.local.set({downloads})
         updateBadge()
     },
@@ -189,18 +189,17 @@ let handlers = {
     failed: message => {
         downloads[message.id].state = S_FAILED
         downloads[message.id].error = message.error
-        chrome.extension.getViews({type: 'popup'})[0]?.update([message.id])  // popup.update
+        chrome.extension.getViews({type: 'popup'})[0]?.update(message.id)  // popup.update
         chrome.storage.local.set({downloads})
         updateBadge()
     },
 
     'pause-all': message => {
-        let ids = []
+        let popup = chrome.extension.getViews({type: 'popup'})[0]
         for (let stat of message.stats) {
             downloads[stat.id].state = S_PAUSED
-            ids.push(stat.id)
+            popup?.update(ids)  // popup.update
         }
-        chrome.extension.getViews({type: 'popup'})[0]?.update(ids)  // popup.update
         chrome.storage.local.set({downloads})
         updateBadge()
     },
@@ -212,7 +211,7 @@ let handlers = {
             download.length = message.length
         }
         updateBadge()
-        chrome.extension.getViews({type: 'popup'})[0]?.update([message.id])  // popup.update
+        chrome.extension.getViews({type: 'popup'})[0]?.update(message.id)  // popup.update
         for (let stat of ['percent', 'written', 'speed', 'eta', 'conns']) {
             delete download[stat]
         }

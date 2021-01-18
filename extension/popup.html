@@ -30,31 +30,48 @@
                 </div>
             </nav>
             <table border="1">
-                <tr>
-                    <th>File name</th>
-                    <th>Size</th>
-                    <th>Date</th>
-                </tr>
-                <!-- <tr tabindex="0"> -->
-                <!--     <td> -->
-                <!--         <div>Foo bar dhdjbchjbchjsdbchjsbchjcbhdsjcbhdjscbhjcbhsjdbchsd.zip</div> -->
-                <!--         <div class="progress" style="width: 50%"></div> -->
-                <!--         <div class="info"> -->
-                <!--             <span>50.34%</span> -->
-                <!--             <span>132.24MB</span> -->
-                <!--             <span>8.21MB/s</span> -->
-                <!--             <span>23m4s</span> -->
-                <!--             <span>x16</span> -->
-                <!--         </div> -->
-                <!--     </td> -->
-                <!--     <td>432.34MB</td> -->
-                <!--     <td>12/16/2020</td> -->
-                <!-- </tr> -->
-                <!-- <tr tabindex="0"> -->
-                <!--     <td>Foo bar foj.zip</td> -->
-                <!--     <td>1014.27MB</td> -->
-                <!--     <td>12/16/2020</td> -->
-                <!-- </tr> -->
+                <!-- These cols are for setting the widths of the columns -->
+                <colgroup>
+                    <col>
+                    <col>
+                    <col>
+                    <col>
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th colspan="2">File name</th>
+                        <th>Size</th>
+                        <th>Date</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- <tr tabindex="0"> -->
+                    <!--     <td> -->
+                    <!--         <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABrUlEQVQ4jXWSv0sbYRzGP9GUxqUmUIdQU7IIQsDaTh3bP8BuR7NlUchkFndxzJBBKNjSDt0a6CDYyaHtUDpXoZcOoRUFUSjaKImYHL5Ph/uRuzfxuON9ufc+zz3P9/tNEVyX+0uSBP4NgsPjK3b2nlMul2k2mywtfKGQn8KYm72Zp7uPAdKhgCTuPXjpkxiQOD/6RaVSod/v4zgOJ61zHj2c4+zw02LITRApkIDD1fM8arUanufFziNqKOC/i8EI8AXq9fpQQCbOWw7isEwkED7+uYLVdjAGRiYpEETQuAiRDY06qFarDAaDWMRbI1gOAoFGo2EV8dYIcdhQnM3hui7tdpv3r1YpzuaQ8ZDgYHsxOxohBiNDsZDjz493ZDIZGm++UixkuTjdZzKdYer+zLblgAQc7p3lLUqlEpsbL0CGwfU/svknpFITz6wajMJIfHxbxXVdaus7gJDEZPpuENkeJAsGg7PyOuEgKrbGdcEeZcY4CD4O+5BO8PYoy7C89oFOp0Or1SI/H/556CASQOLvwW60D1v9+ec0vV6PbrdL6c53hDj9/Q0j0wH4D1EkOsTblrnoAAAAAElFTkSuQmCC"> -->
+                    <!--     </td> -->
+                    <!--     <td> -->
+                    <!--         Foo bar dhdjbchjbchjsdbchjsbchjcbhdsjcbhdjscbhjcbhsjdbchsd.zip -->
+                    <!--         <div class="progress"> -->
+                    <!--             <div style="width: 50%; background: cyan"></div> -->
+                    <!--             <span>50.34%</span> -->
+                    <!--             <span>132.24MB</span> -->
+                    <!--             <span>8.21MB/s</span> -->
+                    <!--             <span>23m4s</span> -->
+                    <!--             <span>x16</span> -->
+                    <!--         </div> -->
+                    <!--     </td> -->
+                    <!--     <td>432.34MB</td> -->
+                    <!--     <td>12/16/2020</td> -->
+                    <!-- </tr> -->
+                    <!-- <tr tabindex="0"> -->
+                    <!--     <td> -->
+                    <!--         <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABrUlEQVQ4jXWSv0sbYRzGP9GUxqUmUIdQU7IIQsDaTh3bP8BuR7NlUchkFndxzJBBKNjSDt0a6CDYyaHtUDpXoZcOoRUFUSjaKImYHL5Ph/uRuzfxuON9ufc+zz3P9/tNEVyX+0uSBP4NgsPjK3b2nlMul2k2mywtfKGQn8KYm72Zp7uPAdKhgCTuPXjpkxiQOD/6RaVSod/v4zgOJ61zHj2c4+zw02LITRApkIDD1fM8arUanufFziNqKOC/i8EI8AXq9fpQQCbOWw7isEwkED7+uYLVdjAGRiYpEETQuAiRDY06qFarDAaDWMRbI1gOAoFGo2EV8dYIcdhQnM3hui7tdpv3r1YpzuaQ8ZDgYHsxOxohBiNDsZDjz493ZDIZGm++UixkuTjdZzKdYer+zLblgAQc7p3lLUqlEpsbL0CGwfU/svknpFITz6wajMJIfHxbxXVdaus7gJDEZPpuENkeJAsGg7PyOuEgKrbGdcEeZcY4CD4O+5BO8PYoy7C89oFOp0Or1SI/H/556CASQOLvwW60D1v9+ec0vV6PbrdL6c53hDj9/Q0j0wH4D1EkOsTblrnoAAAAAElFTkSuQmCC"> -->
+                    <!--     </td> -->
+                    <!--     <td>Foo bar fojdhdjbchjbchjsdbchjsbchjcbhdsjcbhdjscbhjcbhsjdbchsd.zip</td> -->
+                    <!--     <td>1014.27MB</td> -->
+                    <!--     <td>12/16/2020</td> -->
+                    <!-- </tr> -->
+                </tbody>
             </table>
         </div>
 
