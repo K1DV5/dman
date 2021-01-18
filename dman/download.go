@@ -124,15 +124,21 @@ func (down *Download) getResponse(job *downJob) *http.Response {
 	if err != nil {
 		job.err = err
 		return nil
-	} else if job.length > 0 && resp.StatusCode != 206 { // partial content requested
-		resp.Body.Close()
-		if resp.StatusCode == 200 {
-			job.err = notResumableError
-		} else {
-			job.err = fmt.Errorf("Connection error: %s", resp.Status)
+	} else if job.length > 0 {  // resuming
+		if resp.StatusCode != 206 { // partial content requested
+			resp.Body.Close()
+			if resp.StatusCode == 200 {
+				job.err = notResumableError
+			} else {
+				job.err = fmt.Errorf("Connection error: %s", resp.Status)
+			}
+			return nil
+		} else if newLen := resp.ContentLength; newLen != job.length {
+			// probably file on server changed
+			job.err = fmt.Errorf("Server sent another file.")
+			return nil
 		}
-		return nil
-	} else if job.length == 0 { // full content, probably for first connection
+	} else { // full content, probably for first connection
 		if resp.StatusCode != 200 {
 			resp.Body.Close()
 			job.err = fmt.Errorf("Bad response: %s", resp.Status)
