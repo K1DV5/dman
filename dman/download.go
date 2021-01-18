@@ -133,9 +133,10 @@ func (down *Download) getResponse(job *downJob) *http.Response {
 				job.err = fmt.Errorf("Connection error: %s", resp.Status)
 			}
 			return nil
-		} else if newLen := resp.ContentLength; newLen != job.length {
+		} else if newLen := resp.ContentLength; newLen != job.length - job.received {
+			resp.Body.Close()
 			// probably file on server changed
-			job.err = fmt.Errorf("Server sent another file.")
+			job.err = fmt.Errorf("Server sent bad data, length: %d != %d", newLen, job.length - job.received)
 			return nil
 		}
 	} else { // full content, probably for first connection
@@ -237,6 +238,10 @@ func (down *Download) initJob(job *downJob) {
 	job.bufLenCh = make(chan int64, 1)
 	// so that down.addJob() doesn't skip this if the eta is 0
 	job.eta = int64(LONG_TIME)
+}
+
+func (down *Download) jobFileName(offset int64) string {
+	return filepath.Join(down.dir, PART_DIR_NAME, fmt.Sprintf("%s.%d.%d", down.filename, down.id, offset))
 }
 
 // this will modify only the response body and the file
@@ -370,7 +375,7 @@ func (down *Download) coordinate() {
 			}
 			if job.err == nil {
 				if longest.received < longest.length - job.length { // still in progress
-					file, err := os.Create(filepath.Join(down.dir, PART_DIR_NAME, fmt.Sprintf("%s.%d", down.filename, job.offset)))
+					file, err := os.Create(down.jobFileName(job.offset))
 					if err == nil {
 						job.file = file
 						down.initJob(job)
@@ -411,8 +416,20 @@ func (down *Download) start() error {
 	}
 	// get filename
 	down.filename = getFilename(resp)
+	// add number if another file with same name exists
+	if _, err := os.Stat(filepath.Join(down.dir, down.filename)); !os.IsNotExist(err) {
+		ext := filepath.Ext(down.filename)
+		base := string(down.filename[:len(down.filename) - len(ext)])
+		for i := 1;; i++ {
+			newName := fmt.Sprintf("%s (%d)%s", base, i, ext)
+			if _, err := os.Stat(filepath.Join(down.dir, newName)); os.IsNotExist(err) {
+				down.filename = newName
+				break
+			}
+		}
+	}
 	os.Mkdir(filepath.Join(down.dir, PART_DIR_NAME), 666)
-	file, err := os.Create(filepath.Join(down.dir, PART_DIR_NAME, down.filename+".0"))
+	file, err := os.Create(down.jobFileName(0))
 	if err != nil {
 		return err
 	}
@@ -470,14 +487,14 @@ func (down *Download) saveProgress() error {
 		Filename: down.filename,
 	}
 	for _, job := range down.jobsDone {
-		connProg := map[string]int64{
+		jobProg := map[string]int64{
 			"offset":   job.offset,
 			"length":   job.length,
 			"received": job.received,
 		}
-		prog.Parts = append(prog.Parts, connProg)
+		prog.Parts = append(prog.Parts, jobProg)
 	}
-	f, err := os.Create(filepath.Join(down.dir, PART_DIR_NAME, down.filename+PROG_FILE_EXT))
+	f, err := os.Create(filepath.Join(down.dir, PART_DIR_NAME, fmt.Sprintf("%s.%d%s", down.filename, down.id, PROG_FILE_EXT)))
 	if err != nil {
 		return err
 	}
@@ -513,8 +530,7 @@ func (down *Download) resume(progressFile string) (err error) {
 			length:   job["length"],
 			received: job["received"],
 		}
-		fname := filepath.Join(down.dir, PART_DIR_NAME, fmt.Sprintf("%s.%d", down.filename, newJob.offset))
-		file, err := os.OpenFile(fname, os.O_APPEND, 755)
+		file, err := os.OpenFile(down.jobFileName(newJob.offset), os.O_APPEND, 755)
 		if err != nil {
 			return err
 		}

@@ -54,9 +54,9 @@ func standalone(url string, resume bool) {
 	if err == nil {
 		fmt.Println("\rFinished", strings.Repeat(" ", 70))
 	} else if err == pausedError {
-		fmt.Printf("\rPaused, saved progress to '%s/%s%s'.", PART_DIR_NAME, d.filename, PROG_FILE_EXT)
+		fmt.Printf("\rPaused, saved progress to '%s/%s.%d%s'.", PART_DIR_NAME, d.filename, d.id, PROG_FILE_EXT)
 	} else {
-		fmt.Printf("\rFailed: %v\nProgress saved to '%s/%s%s'.", err, PART_DIR_NAME, d.filename, PROG_FILE_EXT)
+		fmt.Printf("\rFailed: %v\nProgress saved to '%s/%s.%d%s'.", err, PART_DIR_NAME, d.filename, d.id, PROG_FILE_EXT)
 	}
 }
 
