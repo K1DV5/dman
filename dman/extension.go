@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"io"
 	"path/filepath"
 	"time"
 )
@@ -123,12 +124,17 @@ func (downs *downloads) sendInfo() bool {
 }
 
 func (downs *downloads) listen() {
-	go downs.coordinate()
+	kill := make(chan bool)
+	go downs.coordinate(kill)
 	for {
 		var msg message
-		if err := msg.get(); err != nil { // shutdown
+		if err := msg.get(); err != nil {
 			close(downs.message)
-			return
+			<- kill
+			if err == io.EOF { // shutdown
+				return
+			}
+			panic(err)
 		}
 		downs.message <- msg
 	}
@@ -222,18 +228,19 @@ func (downs *downloads) handleCompleted(info completedInfo) {
 	msg.send()
 }
 
-func (downs *downloads) coordinate() {
+func (downs *downloads) coordinate(kill chan bool) {
 	defer close(downs.addChan)
 	go downs.addDownload()
 	timer := time.NewTimer(STAT_INTERVAL)
 	defer timer.Stop()
-	var sendingInfo bool
+	var sendingInfo, stopping bool
 	completed := make(chan completedInfo)
 	defer close(completed)
 	for {
 		select {
 		case msg, ok := <-downs.message:
 			if !ok {
+				stopping = true
 				return
 			} else if msg.Type == "info" {
 				sendingInfo = msg.Info
@@ -256,6 +263,10 @@ func (downs *downloads) coordinate() {
 			downs.finishInsertDown(down, completed)
 		case info := <-completed:
 			downs.handleCompleted(info)
+			if stopping && len(downs.collection) == 0 {
+				close(kill)
+				return
+			}
 		}
 	}
 }
