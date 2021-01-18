@@ -124,7 +124,7 @@ func (down *Download) getResponse(job *downJob) *http.Response {
 	if err != nil {
 		job.err = err
 		return nil
-	} else if job.length > 0 {  // resuming
+	} else if job.length > 0 { // resuming
 		if resp.StatusCode != 206 { // partial content requested
 			resp.Body.Close()
 			if resp.StatusCode == 200 {
@@ -133,10 +133,10 @@ func (down *Download) getResponse(job *downJob) *http.Response {
 				job.err = fmt.Errorf("Connection error: %s", resp.Status)
 			}
 			return nil
-		} else if newLen := resp.ContentLength; newLen != job.length - job.received {
+		} else if newLen := resp.ContentLength; newLen != job.length-job.received {
 			resp.Body.Close()
 			// probably file on server changed
-			job.err = fmt.Errorf("Server sent bad data, length: %d != %d", newLen, job.length - job.received)
+			job.err = fmt.Errorf("Server sent bad data, length: %d != %d", newLen, job.length-job.received)
 			return nil
 		}
 	} else { // full content, probably for first connection
@@ -294,7 +294,7 @@ func (down *Download) coordinate() {
 					bufLen = remaining
 				}
 				check.job.bufLenCh <- bufLen
-			} else {  // clean up
+			} else { // clean up
 				check.job.body.Close()
 				close(check.job.bufLenCh)
 			}
@@ -374,7 +374,7 @@ func (down *Download) coordinate() {
 				continue
 			}
 			if job.err == nil {
-				if longest.received < longest.length - job.length { // still in progress
+				if longest.received < longest.length-job.length { // still in progress
 					file, err := os.Create(down.jobFileName(job.offset))
 					if err == nil {
 						job.file = file
@@ -419,8 +419,8 @@ func (down *Download) start() error {
 	// add number if another file with same name exists
 	if _, err := os.Stat(filepath.Join(down.dir, down.filename)); !os.IsNotExist(err) {
 		ext := filepath.Ext(down.filename)
-		base := string(down.filename[:len(down.filename) - len(ext)])
-		for i := 1;; i++ {
+		base := string(down.filename[:len(down.filename)-len(ext)])
+		for i := 1; ; i++ {
 			newName := fmt.Sprintf("%s (%d)%s", base, i, ext)
 			if _, err := os.Stat(filepath.Join(down.dir, newName)); os.IsNotExist(err) {
 				down.filename = newName

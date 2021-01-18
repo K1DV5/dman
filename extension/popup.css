@@ -114,6 +114,8 @@ tbody tr:focus {
     outline: transparent
 }
 
+/****************** SETTINGS ****************/
+
 #settings {
     display: none;
     width: 100%;

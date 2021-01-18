@@ -261,34 +261,35 @@ native.onMessage.addListener(message => {
 let pathSep = navigator.platform == 'Win32' ? '\\' : '/'
 
 chrome.downloads.onChanged.addListener(item => {
-    if (item.filename) {
-        chrome.downloads.pause(item.id, () => {
-            // find the dir
-            let fpath = item.filename.current
-            let dirEnd = fpath.lastIndexOf(pathSep)
-            let dir = fpath.slice(0, dirEnd)
-            let fname = fpath.slice(dirEnd)
-            let extStart = fname.lastIndexOf('.')
-            if (extStart < 0) {
-                dir = dir
-            } else {
-                let extension = fname.slice(extStart + 1)
-                main: for (let [category, extensions] of Object.entries(settings.categories)) {
-                    for (let ext of extensions) {
-                        if (ext == extension) {
-                            dir += pathSep + category
-                            break main
-                        }
+    if (item.filename == undefined) {
+        return
+    }
+    chrome.downloads.pause(item.id, () => {
+        // find the dir
+        let fpath = item.filename.current
+        let dirEnd = fpath.lastIndexOf(pathSep)
+        let dir = fpath.slice(0, dirEnd)
+        let fname = fpath.slice(dirEnd)
+        let extStart = fname.lastIndexOf('.')
+        if (extStart < 0) {
+            dir = dir
+        } else {
+            let extension = fname.slice(extStart + 1)
+            main: for (let [category, extensions] of Object.entries(settings.categories)) {
+                for (let ext of extensions) {
+                    if (ext == extension) {
+                        dir += pathSep + category
+                        break main
                     }
                 }
             }
-            chrome.downloads.search({id: item.id}, items => {
-                item = items[0]
-                chrome.downloads.getFileIcon(item.id, {size: 16}, iconUrl => {
-                    addItem(item.id, item.finalUrl, dir, iconUrl)
-                })
+        }
+        chrome.downloads.search({id: item.id}, items => {
+            item = items[0]
+            chrome.downloads.getFileIcon(item.id, {size: 16}, iconUrl => {
+                addItem(item.id, item.finalUrl, dir, iconUrl)
             })
         })
-    }
+    })
 })
 

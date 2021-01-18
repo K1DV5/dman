@@ -5,8 +5,8 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"os"
 	"io"
+	"os"
 	"path/filepath"
 	"time"
 )
@@ -130,7 +130,7 @@ func (downs *downloads) listen() {
 		var msg message
 		if err := msg.get(); err != nil {
 			close(downs.message)
-			<- kill
+			<-kill
 			if err == io.EOF { // shutdown
 				return
 			}
@@ -146,8 +146,8 @@ func (downs *downloads) handleMsg(msg message) {
 		down := downs.collection[msg.Id]
 		if down == nil {
 			message{
-				Type: "pause",
-				Id: msg.Id,
+				Type:  "pause",
+				Id:    msg.Id,
 				Error: "Download not in progress.",
 			}.send()
 		} else {
@@ -162,7 +162,7 @@ func (downs *downloads) handleMsg(msg message) {
 			down.stop <- os.Interrupt
 		}
 	case "open":
-		go startFile(filepath.Join(msg.Dir, msg.Filename))  // platform dependent
+		go startFile(filepath.Join(msg.Dir, msg.Filename)) // platform dependent
 	default:
 		message{
 			Type:  "error",

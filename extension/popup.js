@@ -115,7 +115,7 @@ function update(id) {
 }
 
 function commitUrl() {
-    chrome.downloads.download({url: urlInput.value})
+    chrome.downloads.download({ url: urlInput.value })
     resetUrl()
 }
 
@@ -255,7 +255,7 @@ document.getElementById('save-settings').addEventListener('click', event => {
         conns: Number(connsElm.value),
         categories: parseCats(catsElm.value)
     }
-    chrome.storage.local.set({settings}, () => {
+    chrome.storage.local.set({ settings }, () => {
         retrieveSettings()
         bg.settings = settings
     })
