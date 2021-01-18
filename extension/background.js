@@ -24,6 +24,9 @@ downloads = {
     // },
 }
 
+// message sent to core, expecting response
+downloadsPending = {}
+
 settings = {
     conns: 1,
     categories: {}
@@ -41,7 +44,12 @@ chrome.storage.local.get(['downloads', 'settings'], res => {
 // remove bottom bar when starting a new download
 chrome.downloads.setShelfEnabled(false)
 
-function addItem(id, url, dir) {
+function addItem(browserId, url, dir, icon) {
+    let id = Number(new Date().getTime().toString().slice(3, -2))
+    downloadsPending[id] = {
+        browserId,
+        icon
+    }
     // send to native
     native.postMessage({
         type: 'new',
@@ -137,34 +145,27 @@ let handlers = {
         }
         let popup = chrome.extension.getViews({type: 'popup'})[0]
         if (downloads[message.id] == undefined) {  // new download
-            chrome.downloads.search({id: message.id}, items => {
-                if (items.length == 0) {
-                    alert('Browser download not found for ' + message.filename)
-                }
-                chrome.downloads.getFileIcon(message.id, {size: 16}, iconUrl => {
-                    let download = {
-                        state: S_DOWNLOADING,
-                        url: message.url,
-                        dir: message.dir,
-                        filename: message.filename,
-                        size: message.size,
-                        percent: 0,
-                        written: '...',
-                        conns: 0,
-                        speed: '...',
-                        eta: '...',
-                        date: new Date().toLocaleDateString(),
-                        icon: iconUrl,
-                    }
-                    downloads[message.id] = download
-                    if (popup) {
-                        popup.addRow(download, message.id)  // popup.addRow
-                        switchUpdates(true)
-                    }
-                    updateBadge()
-                    chrome.storage.local.set({downloads})
-                    chrome.downloads.erase({id: message.id})
-                })
+            let download = {
+                state: S_DOWNLOADING,
+                url: message.url,
+                dir: message.dir,
+                filename: message.filename,
+                size: message.size,
+                percent: 0,
+                written: '...',
+                conns: 0,
+                speed: '...',
+                eta: '...',
+                date: new Date().toLocaleDateString(),
+                icon: downloadsPending[message.id].icon,
+            }
+            downloads[message.id] = download
+            if (popup) {
+                popup.addRow(download, message.id)  // popup.addRow
+                switchUpdates(true)
+            }
+            chrome.downloads.erase({id: downloadsPending[message.id].browserId}, () => {
+                delete downloadsPending[message.id]
             })
         } else if (downloads[message.id].filename != message.filename) {  // resuming
             alert("Resume error: filenames don't match")
@@ -174,9 +175,9 @@ let handlers = {
                 popup.update(message.id)  // popup.addRow
                 switchUpdates(true)
             }
-            updateBadge()
-            chrome.storage.local.set({downloads})
         }
+        updateBadge()
+        chrome.storage.local.set({downloads})
     },
 
     pause: message => {
@@ -251,10 +252,6 @@ let pathSep = navigator.platform == 'Win32' ? '\\' : '/'
 
 chrome.downloads.onChanged.addListener(item => {
     if (item.filename) {
-        if (downloads[item.id] != undefined) {
-            alert('There is an existing download with the same id:\n' + downloads[item.id].filename + '\nContinuing in Downloads...')
-            return
-        }
         chrome.downloads.pause(item.id, () => {
             // find the dir
             let fpath = item.filename.current
@@ -277,7 +274,9 @@ chrome.downloads.onChanged.addListener(item => {
             }
             chrome.downloads.search({id: item.id}, items => {
                 item = items[0]
-                addItem(item.id, item.finalUrl, dir)
+                chrome.downloads.getFileIcon(item.id, {size: 16}, iconUrl => {
+                    addItem(item.id, item.finalUrl, dir, iconUrl)
+                })
             })
         })
     }
