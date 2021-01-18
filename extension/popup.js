@@ -67,12 +67,14 @@ function addRow(data, id) {
 
     let datePart = document.createElement('td')
     row.appendChild(datePart)
-    datePart.innerText = data.date
+    datePart.innerText = new Date(data.date).toLocaleDateString()
 
     row.addEventListener('focus', () => lastFocusId = Number(id))
 }
 
-for (let [id, info] of Object.entries(bg.downloads).sort((a, b) => a[1].state < b[1].state ? 1 : -1)) {
+for (let [id, info] of Object.entries(bg.downloads)
+    .sort((a, b) => a[1].date < b[1].date ? 1 : -1)
+    .sort((a, b) => a[1].state < b[1].state ? 1 : -1)) {
     addRow(info, id)
 }
 
