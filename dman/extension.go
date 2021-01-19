@@ -78,16 +78,19 @@ func (downs *downloads) addDownload() {
 			Id:   info.Id,
 		}
 		var errMsg string
-		if info.Url == "" {
+		if info.Filename == "" {  // new
 			// resuming, set url & filename as well
-			if err := down.resume(filepath.Join(info.Dir, PART_DIR_NAME, fmt.Sprintf("%s.%d%s", info.Filename, info.Id, PROG_FILE_EXT))); err != nil {
+			if err := down.start(); err != nil {
 				errMsg = fmt.Sprintf("\rResume error: %s", err.Error())
 			}
-		} else if err := down.start(); err != nil {
-			// create dir if it doesn't exist
-			os.Mkdir(info.Dir, 666)
-			// new download, set filename as well
-			errMsg = fmt.Sprintf("\rStart error: %s", err.Error())
+		} else {
+			progressFile := filepath.Join(info.Dir, PART_DIR_NAME, fmt.Sprintf("%s.%d%s", info.Filename, info.Id, PROG_FILE_EXT))
+			if err := down.resume(progressFile); err != nil {  // resume
+				// create dir if it doesn't exist
+				os.Mkdir(info.Dir, 666)
+				// new download, set filename as well
+				errMsg = fmt.Sprintf("\rStart error: %s", err.Error())
+			}
 		}
 		if errMsg == "" {
 			downs.insert <- down
@@ -174,7 +177,7 @@ func (downs *downloads) handleMsg(msg message) {
 
 func (downs *downloads) remove(info message) {
 	msg := message{Id: info.Id, Type: "remove"}
-	f, err := os.Open(filepath.Join(info.Dir, PART_DIR_NAME, info.Filename+PROG_FILE_EXT))
+	f, err := os.Open(filepath.Join(info.Dir, PART_DIR_NAME, fmt.Sprintf("%s.%d%s", info.Filename, info.Id, PROG_FILE_EXT)))
 	if err != nil {
 		msg.Error = err.Error()
 		msg.send()
@@ -186,11 +189,23 @@ func (downs *downloads) remove(info message) {
 		msg.send()
 		return
 	}
-	f.Close()
-	os.Remove(f.Name())
+	if err := f.Close(); err != nil {
+		msg.Error = err.Error()
+		msg.send()
+		return
+	}
+	if err := os.Remove(f.Name()); err != nil {
+		msg.Error = err.Error()
+		msg.send()
+		return
+	}
 	for _, part := range prog.Parts {
-		fname := filepath.Join(info.Dir, PART_DIR_NAME, fmt.Sprintf("%s.%d", info.Filename, part["offset"]))
-		os.Remove(fname)
+		fname := filepath.Join(info.Dir, PART_DIR_NAME, fmt.Sprintf("%s.%d.%d", info.Filename, info.Id, part["offset"]))
+		if err = os.Remove(fname); err != nil {
+			msg.Error = err.Error()
+			msg.send()
+			return
+		}
 	}
 	os.Remove(filepath.Join(info.Dir, PART_DIR_NAME))
 	msg.Id = prog.Id

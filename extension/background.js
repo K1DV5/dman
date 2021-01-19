@@ -1,12 +1,13 @@
 
-// constants, for easy recognition
+// download state constants, for easy recognition
 S_DOWNLOADING = 0,
 S_PAUSED = 1,
 S_FAILED = 2,
-S_REBUILDING = 3,
-S_COMPLETED = 4
+S_WAIT_URL = 3,
+S_REBUILDING = 4,
+S_COMPLETED = 5
 // native port
-let native = chrome.runtime.connectNative('com.k1dv5.dman');
+let native = chrome.runtime.connectNative('com.k1dv5.dman')
 
 downloads = {
     // 1: {
@@ -26,6 +27,8 @@ downloads = {
 
 // message sent to core, expecting response
 downloadsPending = {}
+// to change url
+waitingUrl = undefined
 
 settings = {
     conns: 1,
@@ -72,7 +75,7 @@ function changeState(id, to) {
     } else {  // paused / failed
         if (to != S_DOWNLOADING) return
         // resume
-        native.postMessage({id, type: 'new', filename: info.filename, dir: info.dir})
+        native.postMessage({id, type: 'new', url: info.url, filename: info.filename, dir: info.dir})
     }
 }
 
@@ -106,7 +109,7 @@ function removeItem(id) {
         chrome.extension.getViews({type: 'popup'})[0]?.finishRemove([id])  // popup.finishRemove
         chrome.storage.local.set({downloads})
     } else {
-        native.postMessage({id, type: 'remove', filename: download.filename})
+        native.postMessage({id, type: 'remove', dir: download.dir, filename: download.filename})
     }
     return true
 }
@@ -178,6 +181,7 @@ let handlers = {
             alert("Resume error: filenames don't match")
         } else {
             downloads[message.id].state = S_DOWNLOADING
+            downloads[message.id].error = undefined
             if (popup) {
                 popup.update(message.id)  // popup.addRow
                 switchUpdates(true)
@@ -268,6 +272,17 @@ chrome.downloads.onChanged.addListener(item => {
         return
     }
     chrome.downloads.pause(item.id, () => {
+        if (waitingUrl) {
+            chrome.downloads.search({id: item.id}, items => {
+                item = items[0]
+                let down = downloads[waitingUrl]
+                down.url = item.finalUrl
+                changeState(waitingUrl, S_DOWNLOADING)
+                waitingUrl = undefined
+                chrome.downloads.erase({id: waitingUrl})
+            })
+            return
+        }
         // find the dir
         let fpath = item.filename.current
         let dirEnd = fpath.lastIndexOf(pathSep)

@@ -521,7 +521,9 @@ func (down *Download) resume(progressFile string) (err error) {
 	}
 	f.Close()
 	down.id = prog.Id
-	down.url = prog.Url
+	if down.url == "" {  // may be set before calling resume(), to renew url
+		down.url = prog.Url
+	}
 	down.dir = filepath.Dir(filepath.Dir(progressFile))
 	down.filename = prog.Filename
 	for _, job := range prog.Parts {

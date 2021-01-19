@@ -1,5 +1,6 @@
-// -{go run %f download.go extension.go platform_windows.go http://localhost/gparted-live-1.0.0-5-i686.iso}
 // -{go run %f download.go extension.go platform_windows.go ./.dman/gparted-live-1.0.0-5-i686.iso.0.dman}
+// -{go run %f download.go extension.go platform_windows.go ./.dman/gparted-live-1.0.0-5-i686.iso.0.dman http://localhost/foo}
+// -{go run %f download.go extension.go platform_windows.go http://localhost/gparted-live-1.0.0-5-i686.iso}
 // -{go fmt %f}
 // -{go install}
 
@@ -29,19 +30,22 @@ func showProgress(statusChan chan status) {
 	}
 }
 
-func standalone(url string, resume bool) {
+func standalone() {
 	d := newDownload("", 32, 0, ".")
-	if resume {
-		fmt.Print("Resuming...")
-		if err := d.resume(url); err != nil { // set url & filename as well
-			fmt.Printf("\rResume error: %s\n", err.Error())
+	if strings.HasPrefix(os.Args[1], "http://") || strings.HasPrefix(os.Args[1], "https://") {  // new
+		fmt.Print("Starting...")
+		d.url = os.Args[1]
+		if err := d.start(); err != nil { // set filename as well
+			fmt.Printf("\rError: %s\n", err.Error())
 			return
 		}
 	} else {
-		fmt.Print("Starting...")
-		d.url = url
-		if err := d.start(); err != nil { // set filename as well
-			fmt.Printf("\rError: %s\n", err.Error())
+		if len(os.Args) > 2 {
+			d.url = os.Args[2]
+		}
+		fmt.Print("Resuming...")
+		if err := d.resume(os.Args[1]); err != nil { // set url & filename as well
+			fmt.Printf("\rResume error: %s\n", err.Error())
 			return
 		}
 	}
@@ -67,9 +71,7 @@ func main() {
 		setup() // platform dependent
 	} else if strings.HasPrefix(os.Args[1], "chrome-extension://") {
 		extension()
-	} else if strings.HasPrefix(os.Args[1], "http://") || strings.HasPrefix(os.Args[1], "https://") {
-		standalone(os.Args[1], false)
 	} else {
-		standalone(os.Args[1], true)
+		standalone()
 	}
 }

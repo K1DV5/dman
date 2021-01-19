@@ -39,24 +39,29 @@ function addRow(data, id) {
             progress.appendChild(document.createElement('span'))
         }
         let [progressBar, percent, written, speed, eta, conns] = progress.children
-        progressBar.style.width = data.percent + '%'
+        let percentVal = (Math.round(data.percent * 100) / 100) + '%'
+        progressBar.style.width = percentVal
         if (data.state == bg.S_REBUILDING) {
             progressBar.style.background = 'lightgreen'
             percent.innerText = 'Rebuilding'
         } else if (data.state == bg.S_DOWNLOADING) {
             progressBar.style.background = 'cyan'
-            percent.innerText = (Math.round(data.percent * 100) / 100) + '%'
+            percent.innerText = percentVal
             written.innerText = data.written
             speed.innerText = data.speed
             eta.innerText = data.eta
             conns.innerText = 'x' + data.conns
-        } else if (data.state == bg.S_PAUSED) {
+        } else if (data.state == bg.S_WAIT_URL) {
             progressBar.style.background = 'orange'
-            percent.innerText = (Math.round(data.percent * 100) / 100) + '%'
+            percent.innerText = percentVal
+            written.innerText = 'URL...'
+        } else if (data.state == bg.S_PAUSED) {
+            progressBar.style.background = 'grey'
+            percent.innerText = percentVal
             written.innerText = 'Paused'
         } else {  // failed
             progressBar.style.background = 'red'
-            percent.innerText = (Math.round(data.percent * 100) / 100) + '%'
+            percent.innerText = percentVal
             written.innerText = data.error
         }
     }
@@ -86,26 +91,32 @@ function update(id) {
         progress.remove()
     } else {
         let [progressBar, percent, written, speed, eta, conns] = progress.children
+        let percentVal = (Math.round(info.percent * 100) / 100) + '%'  // round to 2 decimal
         if (info.state == bg.S_REBUILDING) {
             progressBar.style.background = 'lightgreen'
-            progressBar.style.width = (Math.round(info.percent * 100) / 100) + '%'
+            progressBar.style.width = percentVal
             percent.innerHTML = 'Rebuilding'
             [written.innerText, speed.innerText, eta.innerText, conns.innerText] = ['', '', '', '']
+        } else if (info.state == bg.S_WAIT_URL) {
+            progressBar.style.background = 'orange'
+            percent.innerText = percentVal
+            written.innerText = 'URL...'
+            [speed.innerText, eta.innerText, conns.innerText] = ['', '', '']
         } else if (info.state == bg.S_FAILED) {
             progressBar.style.background = 'red'
-            percent.innerText = (Math.round(info.percent * 100) / 100) + '%'
+            percent.innerText = percentVal
             written.innerText = info.error
             [speed.innerText, eta.innerText, conns.innerText] = ['', '', '']
         } else if (info.state == bg.S_PAUSED) {
-            progressBar.style.background = 'orange'
-            percent.innerText = (Math.round(info.percent * 100) / 100) + '%'
+            progressBar.style.background = 'grey'
+            percent.innerText = percentVal
             written.innerText = info.written
             speed.innerText = 'Paused'
             [eta.innerText, conns.innerText] = ['', '']
         } else if (info.state == bg.S_DOWNLOADING) {
             progressBar.style.background = 'cyan'
             progressBar.style.width = info.percent + '%'
-            percent.innerText = (Math.round(info.percent * 100) / 100) + '%'
+            percent.innerText = percentVal
             written.innerText = info.written
             speed.innerText = info.speed
             conns.innerText = 'x' + info.conns
@@ -181,6 +192,26 @@ function openPath(event) {
 
 document.getElementById('open').addEventListener('click', openPath)
 document.getElementById('folder').addEventListener('click', openPath)
+
+document.getElementById('url').addEventListener('click', event => {
+    event.preventDefault()
+    let item = document.getElementById(lastFocusId)
+    if (item == null) return
+    let down = bg.downloads[lastFocusId]
+    if (bg.waitingUrl) {
+        let lastWaiting = bg.downloads[bg.waitingUrl].state
+        if (lastWaiting.error) {
+            lastWaiting.state = bg.S_FAILED
+        } else {
+            lastWaiting.state = bg.S_PAUSED
+        }
+    }
+    bg.waitingUrl = lastFocusId
+    if ([bg.S_FAILED, bg.S_PAUSED, bg.S_WAIT_URL].includes(bg.downloads[lastFocusId].state)) {
+        down.state = bg.S_WAIT_URL
+        update(lastFocusId)
+    }
+})
 
 // ==================== SETTINGS ===================
 
