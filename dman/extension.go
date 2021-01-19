@@ -248,12 +248,16 @@ func (downs *downloads) coordinate(kill chan bool) {
 		case msg, ok := <-downs.message:
 			if !ok {
 				if len(downs.collection) == 0 {
+					close(kill)
 					return
 				}
 				stopping = true
 				for _, down := range downs.collection {
-					down.stop <- os.Interrupt
+					go func() {
+						down.stop <- os.Interrupt
+					}()
 				}
+				timer.Reset(STAT_INTERVAL * 2)
 			} else if msg.Type == "info" {
 				sendingInfo = msg.Info
 				if sendingInfo {
@@ -265,6 +269,9 @@ func (downs *downloads) coordinate(kill chan bool) {
 		case <-timer.C:
 			if !sendingInfo {
 				continue
+			} else if stopping {  // stopping timed out
+				close(kill)
+				return
 			}
 			if downs.sendInfo() {
 				timer.Reset(STAT_INTERVAL)
