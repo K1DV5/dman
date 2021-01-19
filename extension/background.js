@@ -221,6 +221,9 @@ let handlers = {
         if (!download.length && message.length) {
             download.length = message.length
         }
+        if (message.filename) {
+            download.filename = message.filename
+        }
         updateBadge()
         chrome.extension.getViews({type: 'popup'})[0]?.update(message.id)  // popup.update
         for (let stat of ['percent', 'written', 'speed', 'eta', 'conns']) {

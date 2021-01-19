@@ -225,6 +225,7 @@ func (downs *downloads) handleCompleted(info completedInfo) {
 	msg := message{Id: info.down.id}
 	if info.err == nil {
 		msg.Type = "completed"
+		msg.Filename = info.down.filename
 	} else if info.err == pausedError {
 		msg.Type = "pause"
 	} else {

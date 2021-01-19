@@ -416,18 +416,6 @@ func (down *Download) start() error {
 	}
 	// get filename
 	down.filename = getFilename(resp)
-	// add number if another file with same name exists
-	if _, err := os.Stat(filepath.Join(down.dir, down.filename)); !os.IsNotExist(err) {
-		ext := filepath.Ext(down.filename)
-		base := string(down.filename[:len(down.filename)-len(ext)])
-		for i := 1; ; i++ {
-			newName := fmt.Sprintf("%s (%d)%s", base, i, ext)
-			if _, err := os.Stat(filepath.Join(down.dir, newName)); os.IsNotExist(err) {
-				down.filename = newName
-				break
-			}
-		}
-	}
 	os.Mkdir(filepath.Join(down.dir, PART_DIR_NAME), 666)
 	file, err := os.Create(down.jobFileName(0))
 	if err != nil {
@@ -472,6 +460,18 @@ func (down *Download) rebuild() {
 		}
 		if err = file.Close(); err != nil {
 			return
+		}
+		// add number if another file with same name exists
+		if _, err := os.Stat(filepath.Join(down.dir, down.filename)); !os.IsNotExist(err) {
+			ext := filepath.Ext(down.filename)
+			base := string(down.filename[:len(down.filename)-len(ext)])
+			for i := 1; ; i++ {
+				newName := fmt.Sprintf("%s (%d)%s", base, i, ext)
+				if _, err := os.Stat(filepath.Join(down.dir, newName)); os.IsNotExist(err) {
+					down.filename = newName
+					break
+				}
+			}
 		}
 		if err = os.Rename(file.Name(), filepath.Join(down.dir, down.filename)); err != nil {
 			return
