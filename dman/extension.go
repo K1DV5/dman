@@ -79,17 +79,15 @@ func (downs *downloads) addDownload() {
 		}
 		var errMsg string
 		if info.Filename == "" {  // new
-			// resuming, set url & filename as well
-			if err := down.start(); err != nil {
-				errMsg = fmt.Sprintf("\rResume error: %s", err.Error())
-			}
-		} else {
-			progressFile := filepath.Join(info.Dir, PART_DIR_NAME, fmt.Sprintf("%s.%d%s", info.Filename, info.Id, PROG_FILE_EXT))
-			if err := down.resume(progressFile); err != nil {  // resume
-				// create dir if it doesn't exist
-				os.Mkdir(info.Dir, 666)
-				// new download, set filename as well
+			// create dir if it doesn't exist
+			os.Mkdir(info.Dir, 666)
+			if err := down.start(); err != nil { // set filename as well
 				errMsg = fmt.Sprintf("\rStart error: %s", err.Error())
+			}
+		} else {  // resume
+			progressFile := filepath.Join(info.Dir, PART_DIR_NAME, fmt.Sprintf("%s.%d%s", info.Filename, info.Id, PROG_FILE_EXT))
+			if err := down.resume(progressFile); err != nil {  // set filename as well
+				errMsg = fmt.Sprintf("\rResume error: %s", err.Error())
 			}
 		}
 		if errMsg == "" {
@@ -132,12 +130,16 @@ func (downs *downloads) listen() {
 	for {
 		var msg message
 		if err := msg.get(); err != nil {
-			close(downs.message)
-			<-kill
 			if err == io.EOF { // shutdown
+				close(downs.message)
+				<-kill
 				return
 			}
-			panic(err)
+			message{
+				Type: "error",
+				Error: err.Error(),
+			}.send()
+			continue
 		}
 		downs.message <- msg
 	}
