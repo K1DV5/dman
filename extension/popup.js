@@ -3,127 +3,18 @@ let bg = chrome.extension.getBackgroundPage()
 bg.switchUpdates(true)
 window.addEventListener('close', () => bg.switchUpdates(false))
 
-let lastFocusId
+// ================ URL ======================
 
 const urlInput = document.getElementById('url')
-const list = document.getElementsByTagName('table')[0].tBodies[0]
-const toolbar = document.getElementById('toolbar')
+const toolbar = document.getElementsByTagName('ui-toolbar')[0]
 
 
-// ================ URL ======================
 document.getElementById('add').addEventListener('click', () => {
     toolbar.style.display = 'none'
     urlInput.parentElement.style.display = 'flex'
     urlInput.value = ''
     urlInput.focus()
 })
-
-function addRow(data, id) {
-    let row = list.insertRow(0)
-    row.setAttribute('tabindex', 0)
-    let iconPart = document.createElement('td')
-    row.appendChild(iconPart)
-    let icon = document.createElement('img')
-    iconPart.appendChild(icon)
-    icon.src = data.icon
-    let fnamePart = document.createElement('td')
-    row.appendChild(fnamePart)
-    fnamePart.innerText = data.filename
-    row.id = id
-    if (data.state != bg.S_COMPLETED) {
-        let progress = document.createElement('div')
-        fnamePart.appendChild(progress)
-        progress.className = 'progress'
-        progress.appendChild(document.createElement('div'))
-        for (let i = 0; i < 5; i++) {
-            progress.appendChild(document.createElement('span'))
-        }
-        let [progressBar, percent, written, speed, eta, conns] = progress.children
-        let percentVal = (Math.round(data.percent * 100) / 100) + '%'
-        progressBar.style.width = percentVal
-        if (data.state == bg.S_REBUILDING) {
-            progressBar.style.background = 'lightgreen'
-            percent.innerText = 'Rebuilding'
-        } else if (data.state == bg.S_DOWNLOADING) {
-            progressBar.style.background = 'cyan'
-            percent.innerText = percentVal
-            written.innerText = data.written
-            speed.innerText = data.speed
-            eta.innerText = data.eta
-            conns.innerText = 'x' + data.conns
-        } else if (data.state == bg.S_WAIT_URL) {
-            progressBar.style.background = 'orange'
-            percent.innerText = percentVal
-            written.innerText = 'URL...'
-        } else if (data.state == bg.S_PAUSED) {
-            progressBar.style.background = 'grey'
-            percent.innerText = percentVal
-            written.innerText = 'Paused'
-        } else {  // failed
-            progressBar.style.background = 'red'
-            percent.innerText = percentVal
-            written.innerText = data.error
-        }
-    }
-
-    let sizePart = document.createElement('td')
-    row.appendChild(sizePart)
-    sizePart.innerText = data.size
-
-    let datePart = document.createElement('td')
-    row.appendChild(datePart)
-    datePart.innerText = new Date(data.date).toLocaleDateString()
-
-    row.addEventListener('focus', () => lastFocusId = Number(id))
-}
-
-for (let [id, info] of Object.entries(bg.downloads)
-    .sort((a, b) => a[1].date < b[1].date ? 1 : -1)
-    .sort((a, b) => a[1].state < b[1].state ? 1 : -1)) {
-    addRow(info, id)
-}
-
-function update(id) {
-    let info = bg.downloads[id]
-    let item = document.getElementById(id)
-    let progress = item.children[1].firstElementChild
-    if (info.state == bg.S_COMPLETED) {
-        progress.remove()
-    } else {
-        let [progressBar, percent, written, speed, eta, conns] = progress.children
-        let percentVal = (Math.round(info.percent * 100) / 100) + '%'  // round to 2 decimal
-        if (info.state == bg.S_REBUILDING) {
-            progressBar.style.background = 'lightgreen'
-            progressBar.style.width = percentVal
-            percent.innerHTML = 'Rebuilding'
-            [written.innerText, speed.innerText, eta.innerText, conns.innerText] = ['', '', '', '']
-        } else if (info.state == bg.S_WAIT_URL) {
-            progressBar.style.background = 'orange'
-            percent.innerText = percentVal
-            written.innerText = 'URL...'
-            [speed.innerText, eta.innerText, conns.innerText] = ['', '', '']
-        } else if (info.state == bg.S_FAILED) {
-            progressBar.style.background = 'red'
-            percent.innerText = percentVal
-            written.innerText = info.error
-            [speed.innerText, eta.innerText, conns.innerText] = ['', '', '']
-        } else if (info.state == bg.S_PAUSED) {
-            progressBar.style.background = 'grey'
-            percent.innerText = percentVal
-            written.innerText = info.written
-            speed.innerText = 'Paused'
-            [eta.innerText, conns.innerText] = ['', '']
-        } else if (info.state == bg.S_DOWNLOADING) {
-            progressBar.style.background = 'cyan'
-            progressBar.style.width = info.percent + '%'
-            percent.innerText = percentVal
-            written.innerText = info.written
-            speed.innerText = info.speed
-            conns.innerText = 'x' + info.conns
-            eta.innerText = info.eta
-        }
-    }
-}
 
 function commitUrl() {
     chrome.downloads.download({ url: urlInput.value })
@@ -138,6 +29,126 @@ function resetUrl() {
 document.getElementById('add-url').addEventListener('click', commitUrl)
 document.getElementById('cancel-url').addEventListener('click', resetUrl)
 
+// ================ LIST-ITEMS ======================
+
+let lastFocusId  // id of the item last focused
+
+let partsNames = ['progress', 'percent', 'speed', 'eta', 'conns']
+
+let progressBarColors = {
+    [bg.S_DOWNLOADING]: 'cyan',
+    [bg.S_FAILED]: 'red',
+    [bg.S_PAUSED]: 'grey',
+    [bg.S_REBUILDING]: 'lightgreen',
+    [bg.S_WAIT_URL]: 'orange',
+}
+
+let staticMsgs = {
+    [bg.S_PAUSED]: 'Paused',
+    [bg.S_REBUILDING]: 'Rebuilding...',
+    [bg.S_WAIT_URL]: 'Waiting for new URL...',
+}
+
+class DownloadItem extends HTMLElement {
+
+    constructor(...args) {
+        super(...args)
+
+        this.addEventListener('focus', () => {
+            lastFocusId = Number(this.id)
+        })
+    }
+
+    async connectedCallback() {
+        this.setAttribute('tabindex', 0)
+        this.data = bg.downloads[this.id]
+
+        this.icon = document.createElement('img')
+        this.icon.src = this.data.icon
+        this.appendChild(this.icon)
+
+        this.fname = document.createElement("ui-name")
+        this.fname.innerText = this.data.filename
+        this.appendChild(this.fname)
+
+        this.size = document.createElement("ui-size")
+        this.size.innerText = this.data.size
+        this.appendChild(this.size)
+
+        this.date = document.createElement("ui-date")
+        this.date.innerText = new Date(this.data.date).toLocaleDateString()
+        this.appendChild(this.date)
+
+        if (this.data.state == bg.S_COMPLETED) {
+            return
+        }
+        for (let name of partsNames) {
+            this[name] = document.createElement('ui-' + name)
+        }
+        this.update()
+    }
+
+    async update() {
+        if (this.data.state == bg.S_COMPLETED) {
+            this.size.innerText = this.data.size
+            this.fname.innerText = this.data.filename
+            for (let e of partsNames) {
+                this[e].remove()
+                delete this[e]
+            }
+            return
+        }
+        // not completed
+        this.size.innerText = this.data.written + ' / ' + this.data.size
+        let lastPartI = this.data.state == bg.S_DOWNLOADING ? partsNames.length : 1
+        for (let name of partsNames.slice(0, lastPartI)) {
+            let elm = this[name]
+            let percent = (Math.round(this.data.percent * 100) / 100) + '%'
+            switch (name) {
+                case 'progress':
+                    elm.style.width = percent
+                    elm.style.background = progressBarColors[this.data.state]
+                    break
+                case 'percent':
+                    elm.innerText = percent
+                    break
+                case 'conns':
+                    elm.innerText = 'x' + this.data.conns
+                    break
+                default:
+                    elm.innerText = this.data[name]
+            }
+            if (elm.parentElement == null) {
+                this.appendChild(elm)
+            }
+        }
+        if (this.data.state != bg.S_DOWNLOADING) {
+            let msgElm = this[partsNames[lastPartI]]
+            msgElm.innerText = staticMsgs[this.data.state] || this.data.error
+            this.appendChild(msgElm)
+            lastPartI++
+        }
+        for (let name of partsNames.slice(lastPartI)) {
+            this[name].remove()
+        }
+    }
+}
+
+customElements.define('download-item', DownloadItem)
+
+list = document.getElementsByTagName('ui-list')[0]
+for (let id of Object.keys(bg.downloads)
+    .sort((a, b) => a[1].date < b[1].date ? 1 : -1)  // by date, most recent
+    .sort((a, b) => a[1].state < b[1].state ? -1 : 1)) {  // by status, in progress at the top
+    let item = document.createElement('download-item')
+    item.id = id
+    list.appendChild(item)
+}
+
+function update(id) {
+    document.getElementById(id).update()
+}
+
 // ===================== LIST ======================
 
 function finishRemove(id) {
@@ -149,6 +160,7 @@ function finishRemove(id) {
 
 document.getElementById('remove').addEventListener('click', event => {
     event.preventDefault()
+    console.log(lastFocusId)
     let item = document.getElementById(lastFocusId)
     if (item == null) return
     if (bg.removeItem(lastFocusId)) {
@@ -193,7 +205,7 @@ function openPath(event) {
 document.getElementById('open').addEventListener('click', openPath)
 document.getElementById('folder').addEventListener('click', openPath)
 
-document.getElementById('url').addEventListener('click', event => {
+document.getElementById('change-url').addEventListener('click', event => {
     event.preventDefault()
     let item = document.getElementById(lastFocusId)
     if (item == null) return
@@ -216,8 +228,8 @@ document.getElementById('url').addEventListener('click', event => {
 // ==================== SETTINGS ===================
 
 document.getElementById('settings-butt').addEventListener('click', event => {
-    let downs = document.getElementById('downloads').style
-    let setts = document.getElementById('settings').style
+    let downs = document.getElementsByTagName('ui-downloads')[0].style
+    let setts = document.getElementsByTagName('ui-settings')[0].style
     if (downs.display == '' || downs.display == 'block') {
         // list shown, show settings
         event.target.innerText = 'Back'

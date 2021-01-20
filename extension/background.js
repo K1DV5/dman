@@ -14,14 +14,15 @@ downloads = {
     //     state: S_DOWNLOADING,  // downloading
     //     url: 'http://foo',
     //     dir: 'D:\\Downloads',
-    //     filename: 'foo',
+    //     filename: 'fooOcmdyfn/c+5/z9kgQqvVUlFFRVBVRBRVIf4nqqRTqdFkMjmo1WrfuIkPp6dqjFlEYIwGQRLtdltd19X3JyfDer1ejXmp+KAiABgRjBGMMRhjCKIAKBQKvNzf37bt7JeYZy0EVKMDKHqjv/C72WyGpExme01ARKPUZaEER0dvUcBKp2kcH7MmoCoLgu/5dNwO/cEAFAr5PE6lgm3bYTGVhcDCA9GwpO/5nJ19JV8s8Wxvj8cvnkM2y8fPn',
     //     size: '23.1MB',
     //     speed: '8MB/s',
     //     written: '15.32MB',
     //     percent: 35,
     //     conns: 13,
     //     eta: '5m23s',
-    //     date: '12/16/2020'
+    //     date: '12/16/2020',
+    //     icon: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAB4klEQVQ4jXWTwW4SURSGv8KECRZtQ4AY07DSxMFoSbd1U93UbX0SnoSFdGGXWHgJNdo3cMMsaxOjKKVAwcAMzj3HxcwwUNo/Ocmdyfn/c+5/z9kgQqvVUlFFRVBVRBRVIf4nqqRTqdFkMjmo1WrfuIkPp6dqjFlEYIwGQRLtdltd19X3JyfDer1ejXmp+KAiABgRjBGMMRhjCKIAKBQKvNzf37bt7JeYZy0EVKMDKHqjv/C72WyGpExme01ARKPUZaEER0dvUcBKp2kcH7MmoCoLgu/5dNwO/cEAFAr5PE6lgm3bYTGVhcDCA9GwpO/5nJ19JV8s8Wxvj8cvnkM2y8fPn/B9L/JL1wViEzudDk8ch/LODjqfM59OyT24z8NyGbfjrvq11gFw2e+zYVn87P7ix/k5w26Xf9MZm5s5ev1+5FdyhcQDUUARFa7HE1JL95z7PinLAg1z7uggNLFULHHV6zHzfGaBAcsiv7XF9WBAqVhA7zIxVq04DqP+JX+6vwkCg+fN+X5xwXhwxVOncreJIuErZGybw8M3PCoV8f6OmYyG5O5lOXj1eukZE4GVOYhh2zbVapXd6mLkV7Ccm0yiKopiWelbScsQua0DUd41GqhotM7RWqugomEBlWjNE4H/IEVCiAG6tNYAAAAASUVORK5CYII='
     // },
 }
 
@@ -75,7 +76,13 @@ function changeState(id, to) {
     } else {  // paused / failed
         if (to != S_DOWNLOADING) return
         // resume
-        native.postMessage({id, type: 'new', url: info.url, filename: info.filename, dir: info.dir})
+        native.postMessage({
+            id,
+            type: 'new',
+            url: info.url,
+            filename: info.filename,  // filename will be used to know if resuming
+            dir: info.dir
+        })
     }
 }
 
@@ -249,7 +256,7 @@ let handlers = {
     },
 
     error: message => {
-        alert('Error:' + message.error)
+        alert('Error: ' + message.error)
     },
 
     default: message => {
