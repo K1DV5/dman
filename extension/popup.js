@@ -155,7 +155,6 @@ function finishRemove(id) {
     let item = document.getElementById(id)
     if (item == null) return
     item.remove()
-    console.log(id)
 }
 
 document.getElementById('remove').addEventListener('click', event => {
@@ -223,6 +222,14 @@ document.getElementById('change-url').addEventListener('click', event => {
         down.state = bg.S_WAIT_URL
         update(lastFocusId)
     }
+})
+
+document.getElementById('copy-url').addEventListener('click', () => {
+    event.preventDefault()
+    if (lastFocusId == undefined) {
+        return
+    }
+    navigator.clipboard.writeText(bg.downloads[lastFocusId]?.url)
 })
 
 // ==================== SETTINGS ===================
