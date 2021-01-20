@@ -145,6 +145,12 @@ for (let id of Object.keys(bg.downloads)
     list.appendChild(item)
 }
 
+function add(id) {
+    let item = document.createElement('download-item')
+    item.id = id
+    list.insertAdjacentElement('afterbegin', item)
+}
+
 function update(id) {
     document.getElementById(id).update()
 }

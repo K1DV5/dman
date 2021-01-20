@@ -64,8 +64,8 @@ download-item {
     grid-template-columns: min-content 1fr 2fr repeat(4, 1fr);
     grid-template-rows: repeat(3, min-content);
     grid-template-areas: "icon name name name name name name"
-                         "icon progress progress progress progress progress progress"
-                         "icon date size percent speed eta conns";
+                         "icon prog prog prog prog prog prog"
+                         "icon date size perc speed eta conns";
     align-items: center;
     width: 100%;
     margin-top: .5em;
@@ -87,7 +87,7 @@ download-item ui-progress {
     margin-top: .3em;
     height: .1em;
     transition: width 1s;
-    grid-area: progress;
+    grid-area: prog;
 }
 
 download-item ui-size {
@@ -105,14 +105,9 @@ download-item ui-speed {
     grid-area: speed;
 }
 
-download-item ui-written {
-    font-size: 80%;
-    grid-area: written;
-}
-
 download-item ui-percent {
     font-size: 80%;
-    grid-area: percent;
+    grid-area: perc;
     grid-column-end: conns;
 }
 
@@ -154,6 +149,7 @@ ui-settings {
     width: 100%;
     margin-top: .5em;
     border: solid 1px grey;
+    padding: .5em;
 }
 
 select {

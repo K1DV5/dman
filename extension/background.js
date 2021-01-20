@@ -151,8 +151,8 @@ let handlers = {
     new: message => {
         if (message.error) {
             if (downloadsPending[message.id] != undefined) {
-                chrome.downloads.search({id: downloadsPending[message.id].id}, item => {
-                    chrome.downloads.resume(item.id)
+                chrome.downloads.search({id: downloadsPending[message.id].id}, items => {
+                    chrome.downloads.resume(items[0].id)
                     alert(message.error + "\nContinuing in Downloads...")
                 })
             } else {
@@ -178,7 +178,7 @@ let handlers = {
             }
             downloads[message.id] = download
             if (popup) {
-                popup.addRow(download, message.id)  // popup.addRow
+                popup.add(message.id)  // popup.addRow
                 switchUpdates(true)
             }
             chrome.downloads.erase({id: downloadsPending[message.id].browserId}, () => {
