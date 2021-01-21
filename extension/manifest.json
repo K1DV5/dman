@@ -6,7 +6,8 @@
         "downloads",
         "downloads.shelf",
         "nativeMessaging",
-        "storage"
+        "storage",
+        "notifications"
     ],
     "background": {
         "scripts": ["background.js"],

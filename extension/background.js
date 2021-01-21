@@ -33,7 +33,11 @@ waitingUrl = undefined
 
 settings = {
     conns: 1,
-    categories: {}
+    categories: {},
+    notify: {
+        begin: true,
+        end: true,
+    }
 }
 
 chrome.storage.local.get(['downloads', 'settings'], res => {
@@ -47,6 +51,21 @@ chrome.storage.local.get(['downloads', 'settings'], res => {
 
 // remove bottom bar when starting a new download
 chrome.downloads.setShelfEnabled(false)
+
+function notify(msg, id) {
+    id = String(id)
+    chrome.notifications.create(id || 'message', {
+        title: 'Dman',
+        message: msg,
+        type: 'basic',
+        iconUrl: chrome.extension.getURL('images/icon128.png')
+    })
+    if (id) {  // for a download item
+        setTimeout(() => {
+            chrome.notifications.clear(id)
+        }, 5000)
+    }
+}
 
 function addItem(browserId, url, dir, icon) {
     let id = Number(new Date().getTime().toString().slice(3, -2))
@@ -153,10 +172,10 @@ let handlers = {
             if (downloadsPending[message.id] != undefined) {
                 chrome.downloads.search({id: downloadsPending[message.id].id}, items => {
                     chrome.downloads.resume(items[0].id)
-                    alert(message.error + "\nContinuing in Downloads...")
+                    notify(message.error + "\nContinuing in Downloads...", message.id)
                 })
             } else {
-                alert(message.error)
+                notify(message.error, message.id)
             }
             return
         }
@@ -183,12 +202,14 @@ let handlers = {
             }
             chrome.downloads.erase({id: downloadsPending[message.id].browserId}, () => {
                 delete downloadsPending[message.id]
+                if (settings.notify.begin) {
+                    notify('Downloading ' + message.filename, message.id)
+                }
             })
         } else if (downloads[message.id].filename != message.filename) {  // resuming
-            alert("Resume error: filenames don't match")
+            notify("Resume error: filenames don't match", message.id)
         } else {
             downloads[message.id].state = S_DOWNLOADING
-            downloads[message.id].error = undefined
             if (popup) {
                 popup.update(message.id)  // popup.addRow
                 switchUpdates(true)
@@ -204,13 +225,13 @@ let handlers = {
         chrome.storage.local.set({downloads})
         updateBadge()
         if (message.error != undefined) {
-            alert(message.error)
+            notify(message.error, message.id)
         }
     },
 
     failed: message => {
         downloads[message.id].state = S_FAILED
-        downloads[message.id].error = message.error
+        notify('Downloading ' + downloads[message.id].filename + ' failed:\n' + message.error, message.id)
         chrome.extension.getViews({type: 'popup'})[0]?.update(message.id)  // popup.update
         chrome.storage.local.set({downloads})
         updateBadge()
@@ -244,11 +265,14 @@ let handlers = {
             switchUpdates(false)
         }
         chrome.storage.local.set({downloads})
+        if (settings.notify.end) {
+            notify('Finished downloading ' + download.filename, message.id)
+        }
     },
 
     remove: message => {
         if (message.error) {
-            alert(message.error)
+            notify(message.error, message.id)
         }
         delete downloads[message.id]
         chrome.extension.getViews({type: 'popup'})[0]?.finishRemove([message.id])  // popup.finishRemove
@@ -256,11 +280,11 @@ let handlers = {
     },
 
     error: message => {
-        alert('Error: ' + message.error)
+        notify('Error: ' + message.error)
     },
 
     default: message => {
-        alert('Unknown message type:' + message.type)
+        notify('Unknown message type:' + message.type)
     }
 }
 

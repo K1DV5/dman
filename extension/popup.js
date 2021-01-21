@@ -45,11 +45,12 @@ let progressBarColors = {
 
 let staticMsgs = {
     [bg.S_PAUSED]: 'Paused',
+    [bg.S_FAILED]: 'Failed',
     [bg.S_REBUILDING]: 'Rebuilding...',
     [bg.S_WAIT_URL]: 'Waiting for new URL...',
 }
 
-class DownloadItem extends HTMLElement {
+customElements.define('download-item', class extends HTMLElement {
 
     constructor(...args) {
         super(...args)
@@ -124,7 +125,7 @@ class DownloadItem extends HTMLElement {
         }
         if (this.data.state != bg.S_DOWNLOADING) {
             let msgElm = this[partsNames[lastPartI]]
-            msgElm.innerText = staticMsgs[this.data.state] || this.data.error
+            msgElm.innerText = staticMsgs[this.data.state]
             this.appendChild(msgElm)
             lastPartI++
         }
@@ -132,18 +133,23 @@ class DownloadItem extends HTMLElement {
             this[name].remove()
         }
     }
-}
+})
 
-customElements.define('download-item', DownloadItem)
-
-list = document.getElementsByTagName('ui-list')[0]
-for (let id of Object.keys(bg.downloads)
-    .sort((a, b) => a[1].date < b[1].date ? 1 : -1)  // by date, most recent
-    .sort((a, b) => a[1].state < b[1].state ? -1 : 1)) {  // by status, in progress at the top
-    let item = document.createElement('download-item')
-    item.id = id
-    list.appendChild(item)
-}
+let list = document.getElementsByTagName('ui-list')[0];
+(() => {
+    // populate the list
+    let items = document.createDocumentFragment()  // to reduce redrawing
+    for (let id of Object.keys(bg.downloads)
+        .sort((a, b) => a[1].date < b[1].date ? 1 : -1)  // by date, most recent
+        .sort((a, b) => a[1].state < b[1].state ? -1 : 1)) {  // by status, in progress at the top
+        // for (let i = 0; i < 100; i++) {
+            let item = document.createElement('download-item')
+            item.id = id
+            items.appendChild(item)
+        // }
+    }
+    list.appendChild(items)
+})()
 
 function add(id) {
     let item = document.createElement('download-item')
@@ -240,6 +246,8 @@ document.getElementById('copy-url').addEventListener('click', () => {
 
 // ==================== SETTINGS ===================
 
+let settingsElements
+
 document.getElementById('settings-butt').addEventListener('click', event => {
     let downs = document.getElementsByTagName('ui-downloads')[0].style
     let setts = document.getElementsByTagName('ui-settings')[0].style
@@ -248,6 +256,16 @@ document.getElementById('settings-butt').addEventListener('click', event => {
         event.target.innerText = 'Back'
         downs.display = 'none'
         setts.display = 'block'
+        if (settingsElements == undefined) {
+            settingsElements = {
+                categories: document.getElementById('categories'),
+                conns: document.getElementById('conns'),
+                notify: {
+                    begin: document.getElementById('notify-begin'),
+                    end: document.getElementById('notify-end'),
+                },
+            }
+        }
         retrieveSettings()
     } else {
         event.target.innerText = 'Settings'
@@ -288,28 +306,30 @@ function parseCats(cats) {
 }
 
 function retrieveSettings() {
-    let catsElm = document.getElementById('categories')
-    let connsElm = document.getElementById('conns')
     chrome.storage.local.get('settings', res => {
         if (res.settings == undefined) {
             return
         }
-        connsElm.value = res.settings.conns
+        settingsElements.conns.value = res.settings.conns
         let cats = []
         for (let [name, exts] of Object.entries(res.settings.categories)) {
             cats.push(name + ': ' + exts.join(' '))
         }
-        catsElm.value = cats.join('\n')
+        settingsElements.categories.value = cats.join('\n')
+        settingsElements.notify.begin.checked = res.settings.notify.begin
+        settingsElements.notify.end.checked = res.settings.notify.end
     })
 }
 
 document.getElementById('save-settings').addEventListener('click', event => {
     event.preventDefault()
-    let catsElm = document.getElementById('categories')
-    let connsElm = document.getElementById('conns')
     let settings = {
-        conns: Number(connsElm.value),
-        categories: parseCats(catsElm.value)
+        conns: Number(settingsElements.conns.value),
+        categories: parseCats(settingsElements.categories.value),
+        notify: {
+            begin: settingsElements.notify.begin.checked,
+            end: settingsElements.notify.end.checked,
+        }
     }
     chrome.storage.local.set({ settings }, () => {
         retrieveSettings()

@@ -40,7 +40,7 @@ button:active {
     background: #8888;
 }
 
-ui-toolbar button {
+ui-toolbar > button {
     font-size: 80%;
     margin-bottom: .5em;
 }
@@ -54,7 +54,6 @@ ui-inputbar {
 
 ui-list {
     overflow-y: auto;
-    max-height: 85%;
     margin-top: .5em;
 }
 
@@ -75,59 +74,61 @@ download-item {
     border-radius: .3em;
 }
 
-download-item img {
+download-item > img {
     grid-area: icon
 }
 
-download-item ui-name {
+download-item > ui-name {
     grid-area: name;
 }
 
-download-item ui-progress {
+download-item > ui-progress {
     margin-top: .3em;
     height: .1em;
     transition: width 1s;
     grid-area: prog;
 }
 
-download-item ui-size {
+download-item > ui-size {
     font-size: 80%;
     grid-area: size;
 }
 
-download-item ui-date {
+download-item > ui-date {
     font-size: 80%;
     grid-area: date;
 }
 
-download-item ui-speed {
-    font-size: 80%;
-    grid-area: speed;
-}
-
-download-item ui-percent {
+/* this is also used for messages, so span it till the end */
+download-item > ui-percent {
     font-size: 80%;
     grid-area: perc;
     grid-column-end: conns;
 }
 
-download-item ui-eta {
+download-item > ui-speed {
+    font-size: 80%;
+    grid-area: speed;
+}
+
+download-item > ui-eta {
     font-size: 80%;
     grid-area: eta;
 }
 
-download-item ui-conns {
+download-item > ui-conns {
     font-size: 80%;
     grid-area: conns;
 }
 
 /* handle long text */
-download-item ui-name, download-item ui-percent {
+download-item > ui-name {
     white-space: nowrap;
     overflow-x: hidden;
     text-overflow: ellipsis;
 }
-download-item:focus ui-name, download-item:focus ui-percent {
+
+download-item:focus > ui-name {
     overflow-wrap: anywhere;
     white-space: initial;
     overflow-x: initial
