@@ -583,7 +583,7 @@ func newDownload(url string, maxConns int, id int, dir string) *Download {
 		maxConns:   maxConns,
 		jobs:       map[int64]*downJob{},
 		err:        make(chan error),
-		stop:       make(chan os.Signal),
+		stop:       make(chan os.Signal, 1),
 		emitStatus: make(chan status, 1), // buffered to bypass emitting if no consumer and continue updating, coordinate()
 		insertJob:  make(chan [2]*downJob),
 		checkJob:   make(chan checkJob, 10),

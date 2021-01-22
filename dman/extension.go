@@ -270,9 +270,9 @@ func (downs *downloads) coordinate(kill chan bool) {
 				}
 				stopping = true
 				for _, down := range downs.collection {
-					go func() {
+					go func(down *Download) {
 						down.stop <- os.Interrupt
-					}()
+					}(down)
 				}
 				timer.Reset(STAT_INTERVAL * 2)
 			} else if msg.Type == "info" {
