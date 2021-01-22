@@ -17,6 +17,15 @@ document.getElementById('add').addEventListener('click', () => {
 })
 
 function commitUrl() {
+    let url = urlInput.value.trim()
+    if (url.length == 0) {
+        return
+    }
+    try {
+        new URL(url)
+    } catch {
+        return
+    }
     chrome.downloads.download({ url: urlInput.value })
     resetUrl()
 }
@@ -26,6 +35,14 @@ function resetUrl() {
     toolbar.style.display = 'flex'
 }
 
+urlInput.addEventListener('keypress', event => {
+    if (event.key == 'Enter') {
+        commitUrl()
+    } else if (event.key == 'Esc') {
+        event.preventDefault()
+        resetUrl()
+    }
+})
 document.getElementById('add-url').addEventListener('click', commitUrl)
 document.getElementById('cancel-url').addEventListener('click', resetUrl)
 
