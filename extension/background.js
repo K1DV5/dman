@@ -80,7 +80,9 @@ chrome.storage.local.get(['downloads', 'settings', 'icons'], res => {
 // remove bottom bar when starting a new download
 chrome.downloads.setShelfEnabled(false)
 
-function notify(msg, id) {
+let DEFAULT_NOTIF_TIMEOUT = 5000
+// show alerts
+function notify(msg, id, timeout) {
     id = String(id)
     chrome.notifications.create(id || 'message', {
         title: 'Dman',
@@ -88,10 +90,10 @@ function notify(msg, id) {
         type: 'basic',
         iconUrl: chrome.extension.getURL('images/icon128.png')
     })
-    if (id) {  // for a download item
+    if (timeout) {
         setTimeout(() => {
             chrome.notifications.clear(id)
-        }, 5000)
+        }, timeout)
     }
 }
 
@@ -203,10 +205,10 @@ let handlers = {
                     addIconKey(downloadsPending[message.id].icon, -1)
                     delete downloadsPending[message.id]
                     chrome.downloads.resume(items[0].id)
-                    notify(message.error + "\nContinuing in Downloads...", message.id)
+                    notify(message.error + "\nContinuing in Downloads...", message.id, DEFAULT_NOTIF_TIMEOUT)
                 })
             } else {
-                notify(message.error, message.id)
+                notify(message.error, message.id, DEFAULT_NOTIF_TIMEOUT)
             }
             return
         }
@@ -234,11 +236,11 @@ let handlers = {
             chrome.downloads.erase({id: downloadsPending[message.id].browserId}, () => {
                 delete downloadsPending[message.id]
                 if (settings.notify.begin) {
-                    notify('Downloading ' + message.filename, message.id)
+                    notify('Downloading ' + message.filename, message.id, DEFAULT_NOTIF_TIMEOUT)
                 }
             })
         } else if (downloads[message.id].filename != message.filename) {  // resuming
-            notify("Resume error: filenames don't match", message.id)
+            notify("Resume error: filenames don't match", message.id, DEFAULT_NOTIF_TIMEOUT)
         } else {
             downloads[message.id].state = S_DOWNLOADING
             if (popup) {
@@ -256,13 +258,13 @@ let handlers = {
         chrome.storage.local.set({downloads})
         updateBadge()
         if (message.error != undefined) {
-            notify(message.error, message.id)
+            notify(message.error, message.id, DEFAULT_NOTIF_TIMEOUT)
         }
     },
 
     failed: message => {
         downloads[message.id].state = S_FAILED
-        notify('Downloading ' + downloads[message.id].filename + ' failed:\n' + message.error, message.id)
+        notify('Downloading ' + downloads[message.id].filename + ' failed:\n' + message.error, message.id)  // keep message
         chrome.extension.getViews({type: 'popup'})[0]?.update(message.id)  // popup.update
         chrome.storage.local.set({downloads})
         updateBadge()
@@ -297,13 +299,13 @@ let handlers = {
         }
         chrome.storage.local.set({downloads})
         if (settings.notify.end) {
-            notify('Finished downloading ' + download.filename, message.id)
+            notify('Finished downloading ' + download.filename, message.id, DEFAULT_NOTIF_TIMEOUT)
         }
     },
 
     remove: message => {
         if (message.error) {
-            notify(message.error, message.id)
+            notify(message.error, message.id, DEFAULT_NOTIF_TIMEOUT)
         }
         addIconKey(downloads[message.id].icon, -1)
         delete downloads[message.id]
