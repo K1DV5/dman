@@ -14,7 +14,7 @@ downloads = {
     //     state: S_DOWNLOADING,  // downloading
     //     url: 'http://foo',
     //     dir: 'D:\\Downloads',
-    //     filename: 'fooOcmdyfn/c+5/z9kgQqvVUlFFRVBVRBRVIf4nqqRTqdFkMjmo1WrfuIkPp6dqjFlEYIwGQRLtdltd19X3JyfDer1ejXmp+KAiABgRjBGMMRhjCKIAKBQKvNzf37bt7JeYZy0EVKMDKHqjv/C72WyGpExme01ARKPUZaEER0dvUcBKp2kcH7MmoCoLgu/5dNwO/cEAFAr5PE6lgm3bYTGVhcDCA9GwpO/5nJ19JV8s8Wxvj8cvnkM2y8fPn',
+    //     filename: 'fooOcmdyfn/c+5/z9kgQqvVUlFFRVBVRBRVIf4nqqRTqdFkMjmo1WrfuIkPp6dqjFlEYIwGQRLtdltd19X3JyfDer1ejXmp+KAiABgRjBGMMRhjCKIAKBQKvN/5nJ19JV8s8Wxvj',
     //     size: '23.1MB',
     //     speed: '8MB/s',
     //     written: '15.32MB',
@@ -22,14 +22,12 @@ downloads = {
     //     conns: 13,
     //     eta: '5m23s',
     //     date: '12/16/2020',
-    //     icon: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAB4klEQVQ4jXWTwW4SURSGv8KECRZtQ4AY07DSxMFoSbd1U93UbX0SnoSFdGGXWHgJNdo3cMMsaxOjKKVAwcAMzj3HxcwwUNo/Ocmdyfn/c+5/z9kgQqvVUlFFRVBVRBRVIf4nqqRTqdFkMjmo1WrfuIkPp6dqjFlEYIwGQRLtdltd19X3JyfDer1ejXmp+KAiABgRjBGMMRhjCKIAKBQKvNzf37bt7JeYZy0EVKMDKHqjv/C72WyGpExme01ARKPUZaEER0dvUcBKp2kcH7MmoCoLgu/5dNwO/cEAFAr5PE6lgm3bYTGVhcDCA9GwpO/5nJ19JV8s8Wxvj8cvnkM2y8fPn/B9L/JL1wViEzudDk8ch/LODjqfM59OyT24z8NyGbfjrvq11gFw2e+zYVn87P7ix/k5w26Xf9MZm5s5ev1+5FdyhcQDUUARFa7HE1JL95z7PinLAg1z7uggNLFULHHV6zHzfGaBAcsiv7XF9WBAqVhA7zIxVq04DqP+JX+6vwkCg+fN+X5xwXhwxVOncreJIuErZGybw8M3PCoV8f6OmYyG5O5lOXj1eukZE4GVOYhh2zbVapXd6mLkV7Ccm0yiKopiWelbScsQua0DUd41GqhotM7RWqugomEBlWjNE4H/IEVCiAG6tNYAAAAASUVORK5CYII='
+    //     icon: 'hash',
     // },
 }
 
 // message sent to core, expecting response
 downloadsPending = {}
-// to change url
-waitingUrl = undefined
 
 settings = {
     conns: 1,
@@ -40,12 +38,42 @@ settings = {
     }
 }
 
-chrome.storage.local.get(['downloads', 'settings'], res => {
+// icons are stored in an object to prevent unnecessarily storing duplicate
+// icons and waste storage. Also count the number of downloads using an icon to
+// purge when not needed
+icons = {
+    // hash: {
+    //     downloads: 1,
+    //     url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAB4klEQVQ4jXWTwW4SURSGv8KECRZtQ4AY07DSxMFoSbd1U93UbX0SnoSFdGGXWHgJNdo3cMMsaxOjKKVAwcAMzj3HxcwwUNo/Ocmdyfn/c+5/z9kgQqvVUlFFRVBVRBRVIf4nqqRTqdFkMjmo1WrfuIkPp6dqjFlEYIwGQRLtdltd19X3JyfDer1ejXmp+KAiABgRjBGMMRhjCKIAKBQKvNzf37bt7JeYZy0EVKMDKHqjv/C72WyGpExme01ARKPUZaEER0dvUcBKp2kcH7MmoCoLgu/5dNwO/cEAFAr5PE6lgm3bYTGVhcDCA9GwpO/5nJ19JV8s8Wxvj8cvnkM2y8fPn/B9L/JL1wViEzudDk8ch/LODjqfM59OyT24z8NyGbfjrvq11gFw2e+zYVn87P7ix/k5w26Xf9MZm5s5ev1+5FdyhcQDUUARFa7HE1JL95z7PinLAg1z7uggNLFULHHV6zHzfGaBAcsiv7XF9WBAqVhA7zIxVq04DqP+JX+6vwkCg+fN+X5xwXhwxVOncreJIuErZGybw8M3PCoV8f6OmYyG5O5lOXj1eukZE4GVOYhh2zbVapXd6mLkV7Ccm0yiKopiWelbScsQua0DUd41GqhotM7RWqugomEBlWjNE4H/IEVCiAG6tNYAAAAASUVORK5CYII=',
+    // },
+}
+
+// to change url
+waitingUrl = undefined
+
+// managing icons by keys
+function addIconKey(hash, downCount) {
+    if (hash in icons) {
+        icons[hash].downloads += downCount
+        if (icons[hash].downloads == 0) {
+            delete icons[hash]
+        }
+    } else if (downCount > 0) {
+        icons[hash] = {
+            downloads: downCount,
+        }
+    }
+}
+
+chrome.storage.local.get(['downloads', 'settings', 'icons'], res => {
     if (res.downloads != undefined) {
         downloads = res.downloads
     }
     if (res.settings != undefined) {
         settings = res.settings
+    }
+    if (res.icons != undefined) {
+        icons = res.icons
     }
 })
 
@@ -67,11 +95,11 @@ function notify(msg, id) {
     }
 }
 
-function addItem(browserId, url, dir, icon) {
+function addItem(browserId, url, dir, iconHash) {
     let id = Number(new Date().getTime().toString().slice(3, -2))
     downloadsPending[id] = {
         browserId,
-        icon
+        icon: iconHash,
     }
     // send to native
     native.postMessage({
@@ -131,9 +159,10 @@ function removeItem(id) {
         return false
     }
     if (download.state == S_COMPLETED) {
+        addIconKey(downloads[id].icon, -1)
         delete downloads[id]
         chrome.extension.getViews({type: 'popup'})[0]?.finishRemove([id])  // popup.finishRemove
-        chrome.storage.local.set({downloads})
+        chrome.storage.local.set({downloads, icons})
     } else {
         native.postMessage({id, type: 'remove', dir: download.dir, filename: download.filename})
     }
@@ -171,6 +200,8 @@ let handlers = {
         if (message.error) {
             if (downloadsPending[message.id] != undefined) {
                 chrome.downloads.search({id: downloadsPending[message.id].id}, items => {
+                    addIconKey(downloadsPending[message.id].icon, -1)
+                    delete downloadsPending[message.id]
                     chrome.downloads.resume(items[0].id)
                     notify(message.error + "\nContinuing in Downloads...", message.id)
                 })
@@ -216,7 +247,7 @@ let handlers = {
             }
         }
         updateBadge()
-        chrome.storage.local.set({downloads})
+        chrome.storage.local.set({downloads, icons})
     },
 
     pause: message => {
@@ -274,9 +305,10 @@ let handlers = {
         if (message.error) {
             notify(message.error, message.id)
         }
+        addIconKey(downloads[message.id].icon, -1)
         delete downloads[message.id]
         chrome.extension.getViews({type: 'popup'})[0]?.finishRemove([message.id])  // popup.finishRemove
-        chrome.storage.local.set({downloads})
+        chrome.storage.local.set({downloads, icons})
     },
 
     error: message => {
@@ -297,6 +329,16 @@ native.onMessage.addListener(message => {
 // });
 
 let pathSep = navigator.platform == 'Win32' ? '\\' : '/'
+
+// for icon image urls. This is to be used to generate a key for the icons
+// storage because the icon urls are data: urls thus long
+function hash32(str) {
+    let hash = 0, i
+    for (i = 0; i < str.length; i++) {
+        hash = (hash * 32 - hash + str.charCodeAt(i)) | 0
+    }
+    return hash
+}
 
 chrome.downloads.onChanged.addListener(item => {
     if (item.filename == undefined) {
@@ -336,7 +378,11 @@ chrome.downloads.onChanged.addListener(item => {
         chrome.downloads.search({id: item.id}, items => {
             item = items[0]
             chrome.downloads.getFileIcon(item.id, {size: 16}, iconUrl => {
-                addItem(item.id, item.finalUrl, dir, iconUrl)
+                // store icon in the icons registry
+                let iconHash = hash32(iconUrl)
+                addIconKey(iconHash, 1)
+                icons[iconHash].url = iconUrl
+                addItem(item.id, item.finalUrl, dir, iconHash)
             })
         })
     })

@@ -65,7 +65,7 @@ customElements.define('download-item', class extends HTMLElement {
         this.data = bg.downloads[this.id]
 
         this.icon = document.createElement('img')
-        this.icon.src = this.data.icon
+        this.icon.src = bg.icons[this.data.icon]?.url
         this.appendChild(this.icon)
 
         this.fname = document.createElement("ui-name")
@@ -336,3 +336,4 @@ document.getElementById('save-settings').addEventListener('click', event => {
         bg.settings = settings
     })
 })
+
