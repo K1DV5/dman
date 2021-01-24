@@ -15,7 +15,7 @@ The main differences with IDM are:
 - If one really needs to use it outside of the browser though, it has a simple
   command line interface.
 
-# Notes
+## Notes
 
 Although most of the core work is done (or so I think), there are some
 incomplete things:
