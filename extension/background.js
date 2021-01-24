@@ -337,7 +337,7 @@ let pathSep = navigator.platform == 'Win32' ? '\\' : '/'
 function hash32(str) {
     let hash = 0, i
     for (i = 0; i < str.length; i++) {
-        hash = (hash * 32 - hash + str.charCodeAt(i)) | 0
+        hash = (hash * 31 + str.charCodeAt(i)) | 0
     }
     return hash
 }
