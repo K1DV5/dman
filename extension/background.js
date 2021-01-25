@@ -105,7 +105,7 @@ function addItem(browserId, url, dir, iconHash) {
     }
     // send to native
     native.postMessage({
-        type: 'new',
+        type: 'add',
         id,
         url,
         dir,
@@ -127,7 +127,7 @@ function changeState(id, to) {
         // resume
         native.postMessage({
             id,
-            type: 'new',
+            type: 'add',
             url: info.url,
             filename: info.filename,  // filename will be used to know if resuming
             dir: info.dir
@@ -198,7 +198,7 @@ let handlers = {
         }
     },
 
-    new: message => {
+    add: message => {
         if (message.error) {
             if (downloadsPending[message.id] != undefined) {
                 chrome.downloads.search({id: downloadsPending[message.id].id}, items => {

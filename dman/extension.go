@@ -14,8 +14,8 @@ import (
 var byteOrder = binary.LittleEndian // most likely
 
 type message struct {
-	// Incoming types: new, pause, pause-all, resume, info
-	// Outgoing types: new, pause, pause-all, resume, info, completed, error
+	// Incoming types: add, pause, pause-all, resume, info
+	// Outgoing types: add, pause, pause-all, resume, info, completed, error
 	Type     string   `json:"type"`
 	Url      string   `json:"url,omitempty"`
 	Id       int      `json:"id,omitempty"`
@@ -74,7 +74,7 @@ func (downs *downloads) addDownload() {
 	for info := range downs.addChan {
 		down := newDownload(info.Url, info.Conns, info.Id, info.Dir)
 		msg := message{
-			Type: "new",
+			Type: "add",
 			Id:   info.Id,
 		}
 		var errMsg string
@@ -160,7 +160,7 @@ func (downs *downloads) handleMsg(msg message) {
 		}
 	case "remove":
 		go downs.remove(msg)
-	case "new":
+	case "add":
 		downs.addChan <- msg
 	case "pause-all":
 		for _, down := range downs.collection {
@@ -228,7 +228,7 @@ func (downs *downloads) finishInsertDown(down *Download, completed chan complete
 		size = "Unknown"
 	}
 	message{
-		Type:     "new",
+		Type:     "add",
 		Id:       down.id,
 		Url:      down.url,
 		Dir:      down.dir,
