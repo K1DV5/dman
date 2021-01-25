@@ -175,14 +175,6 @@ func (down *Download) updateStatus() func(int64) {
 		if down.emitStatus == nil || len(down.emitStatus) > 0 {
 			return
 		}
-		// moving average speed and eta
-		var eta string
-		if speed == 0 {
-			eta = "LongTime"
-		} else {
-			etaVal := (down.length - written) * int64(time.Second) / speed
-			eta = time.Duration(etaVal).Round(time.Second).String()
-		}
 		// moving average speed
 		var avgSpeed int64
 		for i, sp := range speedHist[1:] {
@@ -193,6 +185,14 @@ func (down *Download) updateStatus() func(int64) {
 		avgSpeed = (avgSpeed + speed) / int64(len(speedHist))
 		speedVal, sUnit := readableSize(avgSpeed)
 		writtenVal, wUnit := readableSize(written)
+		// average eta from average speed
+		var eta string
+		if avgSpeed == 0 {
+			eta = "LongTime"
+		} else {
+			etaVal := (down.length - written) * int64(time.Second) / avgSpeed
+			eta = time.Duration(etaVal).Round(time.Second).String()
+		}
 		var percent float64
 		if down.length > 0 {
 			percent = float64(written) / float64(down.length) * 100
@@ -254,11 +254,11 @@ func (down *Download) download(job *downJob) {
 	down.checkJob <- checkJob{0, job}
 	for bufLen := range job.bufLenCh {
 		written, err := io.CopyN(job.file, job.body, bufLen)
+		down.checkJob <- checkJob{written, job}
 		if err != nil {
 			job.err = err
 			break
 		}
-		down.checkJob <- checkJob{written, job}
 	}
 	down.jobDone <- job
 }
@@ -532,8 +532,22 @@ func (down *Download) resume(progressFile string) (err error) {
 			length:   job["length"],
 			received: job["received"],
 		}
-		file, err := os.OpenFile(down.jobFileName(newJob.offset), os.O_APPEND, 755)
+		file, err := os.OpenFile(down.jobFileName(newJob.offset), os.O_RDWR, 666)
 		if err != nil {
+			return err
+		}
+		stat, err := file.Stat()
+		if err != nil {
+			return err
+		}
+		if flen := stat.Size(); flen != newJob.received {
+			if flen < newJob.received {  // known size is incorrect, redownload the missing data
+				newJob.received = flen
+			} else if err := file.Truncate(flen); err != nil {  // cannot be sure that the excess data is correct, so truncate
+				return err
+			}
+		}
+		if _, err := file.Seek(0, io.SeekEnd); err != nil {  // go to the end
 			return err
 		}
 		newJob.file = file

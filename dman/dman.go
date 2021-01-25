@@ -1,6 +1,6 @@
-// -{go run %f download.go extension.go platform_windows.go ./.dman/gparted-live-1.0.0-5-i686.iso.0.dman}
-// -{go run %f download.go extension.go platform_windows.go ./.dman/gparted-live-1.0.0-5-i686.iso.0.dman http://localhost/foo}
-// -{go run %f download.go extension.go platform_windows.go http://localhost/gparted-live-1.0.0-5-i686.iso}
+// -{go build | dman http://localhost/gparted-live-1.0.0-5-i686.iso}
+// -{go build | dman ./.dman/gparted-live-1.0.0-5-i686.iso.0.dman}
+// -{go build | dman ./.dman/gparted-live-1.0.0-5-i686.iso.0.dman http://localhost/foo}
 // -{go fmt %f}
 // -{go install}
 
