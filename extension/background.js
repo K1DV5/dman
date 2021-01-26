@@ -230,7 +230,7 @@ let handlers = {
             }
             downloads[message.id] = download
             if (popup) {
-                popup.add(message.id)  // popup.addRow
+                popup.add(message.id, download)  // popup.addRow
                 switchUpdates(true)
             }
             chrome.downloads.erase({id: downloadsPending[message.id].browserId}, () => {

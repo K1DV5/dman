@@ -153,29 +153,37 @@ customElements.define('download-item', class extends HTMLElement {
 })
 
 let list = document.getElementsByTagName('ui-list')[0];
+let inProgressItems = {};  // elements by id, to update without using document.getElementById which may use more resources
 (() => {
     // populate the list
     let items = document.createDocumentFragment()  // to reduce redrawing
-    for (let id of Object.keys(bg.downloads)
+    for (let [id, data] of Object.entries(bg.downloads)
         .sort((a, b) => a[1].date < b[1].date ? 1 : -1)  // by date, most recent
         .sort((a, b) => a[1].state < b[1].state ? -1 : 1)) {  // by status, in progress at the top
-        // for (let i = 0; i < 100; i++) {
-            let item = document.createElement('download-item')
-            item.id = id
-            items.appendChild(item)
-        // }
+        let item = document.createElement('download-item')
+        item.id = id
+        items.appendChild(item)
+        if (data.state != bg.S_COMPLETED) {
+            inProgressItems[id] = item
+        }
     }
     list.appendChild(items)
 })()
 
-function add(id) {
+function add(id, data) {
     let item = document.createElement('download-item')
     item.id = id
     list.insertAdjacentElement('afterbegin', item)
+    if (data.state != bg.S_COMPLETED) {
+        inProgressItems[id] = item
+    }
 }
 
 function update(id) {
-    document.getElementById(id).update()
+    inProgressItems[id].update()
+    if (bg.downloads[id].state == bg.S_COMPLETED) {
+        delete inProgressItems[id]
+    }
 }
 
 // ===================== LIST ======================
