@@ -85,7 +85,6 @@ download-item > ui-name {
 download-item > ui-progress {
     margin-top: .3em;
     height: .1em;
-    transition: width 1s;
     grid-area: prog;
 }
 
