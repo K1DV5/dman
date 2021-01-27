@@ -137,7 +137,7 @@ download-item:hover {
     background: #09F3;
 }
 
-download-item:focus {
+download-item[focused] {
     background: #09F8;
     outline: transparent
 }

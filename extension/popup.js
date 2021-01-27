@@ -48,7 +48,7 @@ document.getElementById('cancel-url').addEventListener('click', resetUrl)
 
 // ================ LIST-ITEMS ======================
 
-let lastFocusId  // id of the item last focused
+let lastFocusItem
 
 let partsNames = ['progress', 'percent', 'speed', 'eta', 'conns']
 
@@ -73,7 +73,11 @@ customElements.define('download-item', class extends HTMLElement {
         super(...args)
 
         this.addEventListener('focus', () => {
-            lastFocusId = Number(this.id)
+            if (lastFocusItem) {
+                lastFocusItem.removeAttribute('focused')
+            }
+            this.setAttribute('focused', true)  // for styling
+            lastFocusItem = this
         })
     }
 
@@ -196,19 +200,17 @@ function finishRemove(id) {
 
 document.getElementById('remove').addEventListener('click', event => {
     event.preventDefault()
-    console.log(lastFocusId)
-    let item = document.getElementById(lastFocusId)
-    if (item == null) return
-    if (bg.removeItem(lastFocusId)) {
-        lastFocusId = undefined
+    if (lastFocusItem == null) return
+    if (bg.removeItem(lastFocusItem.id)) {
+        lastFocusItem = undefined
     }
 })
 
 function pauseResume(event) {
     event.preventDefault()
-    if (document.getElementById(lastFocusId) == null) return
+    if (lastFocusItem == null) return
     let stateTo = event.target.id == 'pause' ? bg.S_PAUSED : bg.S_DOWNLOADING
-    bg.changeState(lastFocusId, stateTo)
+    bg.changeState(Number(lastFocusItem.id), stateTo)
 }
 document.getElementById('pause').addEventListener('click', pauseResume)
 document.getElementById('pause-all').addEventListener('click', () => {
@@ -229,12 +231,11 @@ document.getElementById('clear').addEventListener('click', event => {
 
 function openPath(event) {
     event.preventDefault()
-    let item = document.getElementById(lastFocusId)
-    if (item == null) return
+    if (lastFocusItem == null) return
     if (event.target.id == 'open') {
-        bg.openFile(lastFocusId)
+        bg.openFile(Number(lastFocusItem.id))
     } else {
-        bg.openDir(lastFocusId)
+        bg.openDir(Number(lastFocusItem.id))
     }
 }
 
@@ -243,9 +244,8 @@ document.getElementById('folder').addEventListener('click', openPath)
 
 document.getElementById('change-url').addEventListener('click', event => {
     event.preventDefault()
-    let item = document.getElementById(lastFocusId)
-    if (item == null) return
-    let down = bg.downloads[lastFocusId]
+    if (lastFocusItem == null) return
+    let down = bg.downloads[lastFocusItem.id]
     if (bg.waitingUrl) {
         let lastWaiting = bg.downloads[bg.waitingUrl].state
         if (lastWaiting.error) {
@@ -254,19 +254,19 @@ document.getElementById('change-url').addEventListener('click', event => {
             lastWaiting.state = bg.S_PAUSED
         }
     }
-    bg.waitingUrl = lastFocusId
-    if ([bg.S_FAILED, bg.S_PAUSED, bg.S_WAIT_URL].includes(bg.downloads[lastFocusId].state)) {
+    bg.waitingUrl = Number(lastFocusItem.id)
+    if ([bg.S_FAILED, bg.S_PAUSED, bg.S_WAIT_URL].includes(bg.downloads[lastFocusItem.id].state)) {
         down.state = bg.S_WAIT_URL
-        update(lastFocusId)
+        update(Number(lastFocusItem.id))
     }
 })
 
 document.getElementById('copy-url').addEventListener('click', () => {
     event.preventDefault()
-    if (lastFocusId == undefined) {
+    if (lastFocusItem == undefined) {
         return
     }
-    navigator.clipboard.writeText(bg.downloads[lastFocusId]?.url)
+    navigator.clipboard.writeText(bg.downloads[lastFocusItem.id]?.url)
 })
 
 // ==================== SETTINGS ===================
