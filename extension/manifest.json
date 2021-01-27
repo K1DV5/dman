@@ -1,7 +1,7 @@
 {
     "name": "DMan",
     "version": "1.0",
-    "description": "Download files fast just using the browser",
+    "description": "Download files fast without leaving the browser",
     "permissions": [
         "downloads",
         "downloads.shelf",
