@@ -62,23 +62,23 @@ func getFilename(resp *http.Response) string {
 	return filename
 }
 
-func readableSize(length int64) (float64, string) {
+func readableSize(length int64) string {
 	var value = float64(length)
 	var unit string
 	switch {
-	case value > GB:
+	case value >= GB:
 		value /= GB
 		unit = "GB"
-	case value > MB:
+	case value >= MB:
 		value /= MB
 		unit = "MB"
-	case value > KB:
+	case value >= KB:
 		value /= KB
 		unit = "KB"
 	default:
 		unit = "B"
 	}
-	return value, unit
+	return fmt.Sprintf("%.2f%s", value, unit)
 }
 
 type downJob struct {
@@ -183,8 +183,6 @@ func (down *Download) updateStatus() func(int64) {
 		}
 		speedHist[len(speedHist)-1] = speed
 		avgSpeed = (avgSpeed + speed) / int64(len(speedHist))
-		speedVal, sUnit := readableSize(avgSpeed)
-		writtenVal, wUnit := readableSize(written)
 		// average eta from average speed
 		var eta string
 		if avgSpeed == 0 {
@@ -199,9 +197,9 @@ func (down *Download) updateStatus() func(int64) {
 		}
 		down.emitStatus <- status{
 			Id:      down.id,
-			Speed:   fmt.Sprintf("%.2f%s/s", speedVal, sUnit),
+			Speed:   readableSize(avgSpeed) + "/s",
 			Percent: percent,
-			Written: fmt.Sprintf("%.2f%s", writtenVal, wUnit),
+			Written: readableSize(written),
 			Conns:   len(down.jobs),
 			Eta:     eta,
 		}

@@ -222,8 +222,7 @@ func (downs *downloads) finishInsertDown(down *Download, completed chan complete
 	}()
 	var size string
 	if down.length > 0 {
-		sizeVal, unit := readableSize(down.length)
-		size = fmt.Sprintf("%.2f%s", sizeVal, unit)
+		size = readableSize(down.length)
 	} else {
 		size = "Unknown"
 	}
