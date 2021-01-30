@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"github.com/K1DV5/dman/dman/download"
 )
 
 var byteOrder = binary.LittleEndian // most likely
@@ -22,7 +23,7 @@ type message struct {
 	Filename string   `json:"filename,omitempty"`
 	Size     string   `json:"size,omitempty"`
 	Conns    int      `json:"conns,omitempty"`
-	Stats    []status `json:"stats,omitempty"`
+	Stats    []download.Status `json:"stats,omitempty"`
 	Info     bool     `json:"info,omitempty"`
 	Error    string   `json:"error,omitempty"`
 	Dir      string   `json:"dir,omitempty"`
@@ -59,20 +60,20 @@ func (msg message) send() error {
 }
 
 type completedInfo struct {
-	down *Download
+	down *download.Download
 	err  error
 }
 
 type downloads struct {
-	collection map[int]*Download
+	collection map[int]*download.Download
 	addChan    chan message
 	message    chan message
-	insert     chan *Download
+	insert     chan *download.Download
 }
 
 func (downs *downloads) addDownload() {
 	for info := range downs.addChan {
-		down := newDownload(info.Url, info.Conns, info.Id, info.Dir)
+		down := download.New(info.Url, info.Conns, info.Id, info.Dir)
 		msg := message{
 			Type: "add",
 			Id:   info.Id,
@@ -81,12 +82,12 @@ func (downs *downloads) addDownload() {
 		if info.Filename == "" {  // new
 			// create dir if it doesn't exist
 			os.Mkdir(info.Dir, 666)
-			if err := down.start(); err != nil { // set filename as well
+			if err := down.Start(); err != nil { // set filename as well
 				errMsg = fmt.Sprintf("\rStart error: %s", err.Error())
 			}
 		} else {  // resume
-			progressFile := filepath.Join(info.Dir, PART_DIR_NAME, fmt.Sprintf("%s.%d%s", info.Filename, info.Id, PROG_FILE_EXT))
-			if err := down.resume(progressFile); err != nil {  // set filename as well
+			progressFile := filepath.Join(info.Dir, download.PART_DIR_NAME, fmt.Sprintf("%s.%d%s", info.Filename, info.Id, download.PROG_FILE_EXT))
+			if err := down.Resume(progressFile); err != nil {  // set filename as well
 				errMsg = fmt.Sprintf("\rResume error: %s", err.Error())
 			}
 		}
@@ -103,11 +104,11 @@ func (downs *downloads) sendInfo() bool {
 	if len(downs.collection) == 0 {
 		return false
 	}
-	var stats []status
+	var stats []download.Status
 	for _, down := range downs.collection {
 		// get only the available stats, to not block
 		select {
-		case stat, ok := <-down.emitStatus:
+		case stat, ok := <-down.Status:
 			if ok {
 				stats = append(stats, stat)
 			}
@@ -156,7 +157,7 @@ func (downs *downloads) handleMsg(msg message) {
 				Error: "Download not in progress.",
 			}.send()
 		} else {
-			downs.collection[msg.Id].stop <- os.Interrupt
+			downs.collection[msg.Id].Stop <- os.Interrupt
 		}
 	case "remove":
 		go downs.remove(msg)
@@ -164,7 +165,7 @@ func (downs *downloads) handleMsg(msg message) {
 		downs.addChan <- msg
 	case "pause-all":
 		for _, down := range downs.collection {
-			down.stop <- os.Interrupt
+			down.Stop <- os.Interrupt
 		}
 	case "open":
 		go startFile(filepath.Join(msg.Dir, msg.Filename)) // platform dependent
@@ -179,13 +180,13 @@ func (downs *downloads) handleMsg(msg message) {
 
 func (downs *downloads) remove(info message) {
 	msg := message{Id: info.Id, Type: "remove"}
-	f, err := os.Open(filepath.Join(info.Dir, PART_DIR_NAME, fmt.Sprintf("%s.%d%s", info.Filename, info.Id, PROG_FILE_EXT)))
+	f, err := os.Open(filepath.Join(info.Dir, download.PART_DIR_NAME, fmt.Sprintf("%s.%d%s", info.Filename, info.Id, download.PROG_FILE_EXT)))
 	if err != nil {
 		msg.Error = err.Error()
 		msg.send()
 		return
 	}
-	var prog progress
+	var prog download.Progress
 	if err := json.NewDecoder(f).Decode(&prog); err != nil {
 		msg.Error = err.Error()
 		msg.send()
@@ -202,47 +203,47 @@ func (downs *downloads) remove(info message) {
 		return
 	}
 	for _, part := range prog.Parts {
-		fname := filepath.Join(info.Dir, PART_DIR_NAME, fmt.Sprintf("%s.%d.%d", info.Filename, info.Id, part["offset"]))
+		fname := filepath.Join(info.Dir, download.PART_DIR_NAME, fmt.Sprintf("%s.%d.%d", info.Filename, info.Id, part["offset"]))
 		if err = os.Remove(fname); err != nil {
 			msg.Error = err.Error()
 			msg.send()
 			return
 		}
 	}
-	os.Remove(filepath.Join(info.Dir, PART_DIR_NAME))
+	os.Remove(filepath.Join(info.Dir, download.PART_DIR_NAME))
 	msg.Id = prog.Id
 	msg.send()
 }
 
-func (downs *downloads) finishInsertDown(down *Download, completed chan completedInfo) {
-	downs.collection[down.id] = down
+func (downs *downloads) finishInsertDown(down *download.Download, completed chan completedInfo) {
+	downs.collection[down.Id] = down
 	go func() {
-		err := <-down.err
+		err := <-down.Err
 		completed <- completedInfo{down: down, err: err}
 	}()
 	var size string
-	if down.length > 0 {
-		size = readableSize(down.length)
+	if down.Length > 0 {
+		size = download.ReadableSize(down.Length)
 	} else {
 		size = "Unknown"
 	}
 	message{
 		Type:     "add",
-		Id:       down.id,
-		Url:      down.url,
-		Dir:      down.dir,
-		Filename: down.filename,
+		Id:       down.Id,
+		Url:      down.Url,
+		Dir:      down.Dir,
+		Filename: down.Filename,
 		Size:     size,
 	}.send()
 }
 
 func (downs *downloads) handleCompleted(info completedInfo) {
-	delete(downs.collection, info.down.id)
-	msg := message{Id: info.down.id}
+	delete(downs.collection, info.down.Id)
+	msg := message{Id: info.down.Id}
 	if info.err == nil {
 		msg.Type = "completed"
-		msg.Filename = info.down.filename
-	} else if info.err == pausedError {
+		msg.Filename = info.down.Filename
+	} else if info.err == download.PausedError {
 		msg.Type = "pause"
 	} else {
 		msg.Type = "failed"
@@ -254,7 +255,7 @@ func (downs *downloads) handleCompleted(info completedInfo) {
 func (downs *downloads) coordinate(kill chan bool) {
 	defer close(downs.addChan)
 	go downs.addDownload()
-	timer := time.NewTimer(STAT_INTERVAL)
+	timer := time.NewTimer(download.STAT_INTERVAL)
 	defer timer.Stop()
 	var sendingInfo, stopping bool
 	completed := make(chan completedInfo)
@@ -269,15 +270,15 @@ func (downs *downloads) coordinate(kill chan bool) {
 				}
 				stopping = true
 				for _, down := range downs.collection {
-					go func(down *Download) {
-						down.stop <- os.Interrupt
+					go func(down *download.Download) {
+						down.Stop <- os.Interrupt
 					}(down)
 				}
-				timer.Reset(STAT_INTERVAL * 2)
+				timer.Reset(download.STAT_INTERVAL * 2)
 			} else if msg.Type == "info" {
 				sendingInfo = msg.Info
 				if sendingInfo {
-					timer.Reset(STAT_INTERVAL)
+					timer.Reset(download.STAT_INTERVAL)
 				}
 			} else {
 				downs.handleMsg(msg)
@@ -290,7 +291,7 @@ func (downs *downloads) coordinate(kill chan bool) {
 				return
 			}
 			if downs.sendInfo() {
-				timer.Reset(STAT_INTERVAL)
+				timer.Reset(download.STAT_INTERVAL)
 			} else {
 				sendingInfo = false
 			}
@@ -309,9 +310,9 @@ func (downs *downloads) coordinate(kill chan bool) {
 func extension() {
 	downs := downloads{
 		addChan:    make(chan message, 10),
-		collection: map[int]*Download{},
+		collection: map[int]*download.Download{},
 		message:    make(chan message),
-		insert:     make(chan *Download),
+		insert:     make(chan *download.Download),
 	}
 	downs.listen()
 }

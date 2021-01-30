@@ -1,5 +1,5 @@
-// -{go build | dman http://localhost/gparted-live-1.0.0-5-i686.iso}
 // -{go build | dman ./.dman/gparted-live-1.0.0-5-i686.iso.0.dman}
+// -{go build | dman http://localhost/gparted-live-1.0.0-5-i686.iso}
 // -{go build | dman ./.dman/gparted-live-1.0.0-5-i686.iso.0.dman http://localhost/foo}
 // -{go fmt %f}
 // -{go install}
@@ -11,9 +11,10 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"github.com/K1DV5/dman/dman/download"
 )
 
-func showProgress(statusChan chan status) {
+func showProgress(status chan download.Status) {
 	// max width stat:
 	// 100.00% 1004.43MB 1004.34KB/s x32 10d23h21m23s
 	// min width stat:
@@ -21,7 +22,7 @@ func showProgress(statusChan chan status) {
 	// Rebuilding stat:
 	// Rebuilding 44.33%
 	// variation space: normal: 19, rebuilding: 29
-	for stat := range statusChan {
+	for stat := range status {
 		if stat.Rebuilding {
 			fmt.Printf("\rRebuilding %.0f%%"+strings.Repeat(" ", 29), stat.Percent)
 		} else {
@@ -31,38 +32,38 @@ func showProgress(statusChan chan status) {
 }
 
 func standalone() {
-	d := newDownload("", 32, 0, ".")
+	d := download.New("", 32, 0, ".")
 	if strings.HasPrefix(os.Args[1], "http://") || strings.HasPrefix(os.Args[1], "https://") {  // new
 		fmt.Print("Starting...")
-		d.url = os.Args[1]
-		if err := d.start(); err != nil { // set filename as well
+		d.Url = os.Args[1]
+		if err := d.Start(); err != nil { // set filename as well
 			fmt.Printf("\rError: %s\n", err.Error())
 			return
 		}
 	} else {
 		if len(os.Args) > 2 {
-			d.url = os.Args[2]
+			d.Url = os.Args[2]
 		}
 		fmt.Print("Resuming...")
-		if err := d.resume(os.Args[1]); err != nil { // set url & filename as well
+		if err := d.Resume(os.Args[1]); err != nil { // set url & filename as well
 			fmt.Printf("\rResume error: %s\n", err.Error())
 			return
 		}
 	}
 
-	fmt.Printf("\rDownloading '%s' press Ctrl+C to stop.\n", d.filename)
-	go showProgress(d.emitStatus)
+	fmt.Printf("\rDownloading '%s' press Ctrl+C to stop.\n", d.Filename)
+	go showProgress(d.Status)
 
 	// enable interrupt
-	signal.Notify(d.stop, os.Interrupt)
-	err := <-d.err
+	signal.Notify(d.Stop, os.Interrupt)
+	err := <-d.Err
 
 	if err == nil {
 		fmt.Println("\rFinished", strings.Repeat(" ", 70))
-	} else if err == pausedError {
-		fmt.Printf("\rPaused, saved progress to '%s/%s.%d%s'.", PART_DIR_NAME, d.filename, d.id, PROG_FILE_EXT)
+	} else if err == download.PausedError {
+		fmt.Printf("\rPaused, saved progress to '%s/%s.%d%s'.", download.PART_DIR_NAME, d.Filename, d.Id, download.PROG_FILE_EXT)
 	} else {
-		fmt.Printf("\rFailed: %v\nProgress saved to '%s/%s.%d%s'.", err, PART_DIR_NAME, d.filename, d.id, PROG_FILE_EXT)
+		fmt.Printf("\rFailed: %v\nProgress saved to '%s/%s.%d%s'.", err, download.PART_DIR_NAME, d.Filename, d.Id, download.PROG_FILE_EXT)
 	}
 }
 

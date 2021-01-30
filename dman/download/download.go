@@ -1,7 +1,7 @@
 // -{go install}
 // -{go fmt %f}
 
-package main
+package download
 
 import (
 	"encoding/json"
@@ -34,12 +34,12 @@ const (
 )
 
 var (
-	pausedError       = fmt.Errorf("paused")
-	noSplitError      = fmt.Errorf("No job to split found")
-	notResumableError = fmt.Errorf("Connection not resumable")
+	PausedError       = fmt.Errorf("paused")
+	NoSplitError      = fmt.Errorf("No job to split found")
+	NotResumableError = fmt.Errorf("Connection not resumable")
 )
 
-type status struct {
+type Status struct {
 	Id         int     `json:"id,omitempty"`
 	Rebuilding bool    `json:"rebuilding,omitempty"`
 	Speed      string  `json:"speed,omitempty"`
@@ -62,7 +62,7 @@ func getFilename(resp *http.Response) string {
 	return filename
 }
 
-func readableSize(length int64) string {
+func ReadableSize(length int64) string {
 	var value = float64(length)
 	var unit string
 	switch {
@@ -96,26 +96,26 @@ type checkJob struct {
 
 type Download struct {
 	// Required:
-	id       int
-	url      string
-	dir      string
+	Id       int
+	Url      string
+	Dir      string
 	maxConns int
-	err      chan error
+	Err      chan error
 	// status
-	emitStatus chan status
+	Status chan Status
 	// Dynamically set:
-	filename  string
-	length    int64
+	Filename  string
+	Length    int64
 	checkJob  chan checkJob
 	jobDone   chan *downJob
-	jobs      map[int64]*downJob
+	Jobs      map[int64]*downJob
 	jobsDone  []*downJob
 	insertJob chan [2]*downJob
-	stop      chan os.Signal
+	Stop      chan os.Signal
 }
 
 func (down *Download) getResponse(job *downJob) *http.Response {
-	req, _ := http.NewRequest("GET", down.url, nil)
+	req, _ := http.NewRequest("GET", down.Url, nil)
 	if job.length > 0 { // unknown length, probably additional connection
 		// request partial content
 		req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", job.offset+job.received, job.offset+job.length-1))
@@ -128,7 +128,7 @@ func (down *Download) getResponse(job *downJob) *http.Response {
 		if resp.StatusCode != 206 { // partial content requested
 			resp.Body.Close()
 			if resp.StatusCode == 200 {
-				job.err = notResumableError
+				job.err = NotResumableError
 			} else {
 				job.err = fmt.Errorf("Connection error: %s", resp.Status)
 			}
@@ -158,7 +158,7 @@ func (down *Download) updateStatus() func(int64) {
 	return func(duration int64) {
 		var written int64
 		var speed int64
-		for _, job := range down.jobs {
+		for _, job := range down.Jobs {
 			jobSpeed := (job.received - job.lastReceived) * int64(time.Second) / duration // per second
 			if jobSpeed == 0 {
 				job.eta = int64(LONG_TIME)
@@ -172,7 +172,7 @@ func (down *Download) updateStatus() func(int64) {
 		for _, job := range down.jobsDone { // take the completed into account
 			written += job.length
 		}
-		if down.emitStatus == nil || len(down.emitStatus) > 0 {
+		if down.Status == nil || len(down.Status) > 0 {
 			return
 		}
 		// moving average speed
@@ -188,19 +188,19 @@ func (down *Download) updateStatus() func(int64) {
 		if avgSpeed == 0 {
 			eta = "LongTime"
 		} else {
-			etaVal := (down.length - written) * int64(time.Second) / avgSpeed
+			etaVal := (down.Length - written) * int64(time.Second) / avgSpeed
 			eta = time.Duration(etaVal).Round(time.Second).String()
 		}
 		var percent float64
-		if down.length > 0 {
-			percent = float64(written) / float64(down.length) * 100
+		if down.Length > 0 {
+			percent = float64(written) / float64(down.Length) * 100
 		}
-		down.emitStatus <- status{
-			Id:      down.id,
-			Speed:   readableSize(avgSpeed) + "/s",
+		down.Status <- Status{
+			Id:      down.Id,
+			Speed:   ReadableSize(avgSpeed) + "/s",
 			Percent: percent,
-			Written: readableSize(written),
-			Conns:   len(down.jobs),
+			Written: ReadableSize(written),
+			Conns:   len(down.Jobs),
 			Eta:     eta,
 		}
 	}
@@ -209,15 +209,15 @@ func (down *Download) updateStatus() func(int64) {
 func (down *Download) addJob() error {
 	var longest *downJob // connection having the longest undownloaded part
 	var longestFree int64
-	for _, job := range down.jobs {
+	for _, job := range down.Jobs {
 		free := job.length - job.received // not yet downloaded
 		if free > longestFree {
-			longest = down.jobs[job.offset]
+			longest = down.Jobs[job.offset]
 			longestFree = free
 		}
 	}
 	if longest == nil || longest.eta < MIN_CUT_ETA {
-		return noSplitError
+		return NoSplitError
 	}
 	newLen := longestFree / 2
 	newJob := &downJob{
@@ -239,7 +239,7 @@ func (down *Download) initJob(job *downJob) {
 }
 
 func (down *Download) jobFileName(offset int64) string {
-	return filepath.Join(down.dir, PART_DIR_NAME, fmt.Sprintf("%s.%d.%d", down.filename, down.id, offset))
+	return filepath.Join(down.Dir, PART_DIR_NAME, fmt.Sprintf("%s.%d.%d", down.Filename, down.Id, offset))
 }
 
 // this will modify only the response body and the file
@@ -262,11 +262,11 @@ func (down *Download) download(job *downJob) {
 }
 
 func (down *Download) coordinate() {
-	defer close(down.emitStatus)
+	defer close(down.Status)
 	defer close(down.insertJob)
 	defer close(down.jobDone)
-	defer close(down.err)
-	defer close(down.stop)
+	defer close(down.Err)
+	defer close(down.Stop)
 	defer close(down.checkJob)
 	lastTime := time.Now()
 	timer := time.NewTimer(STAT_INTERVAL)
@@ -298,23 +298,23 @@ func (down *Download) coordinate() {
 			}
 		case job := <-down.jobDone:
 			if job.offset < 0 { // finished rebuilding
-				down.err <- job.err
+				down.Err <- job.err
 				return
 			}
-			delete(down.jobs, job.offset)
+			delete(down.Jobs, job.offset)
 			down.jobsDone = append(down.jobsDone, job)
 			failed := job.err != nil && state == S_DOWNLOADING
 			if failed {
 				mainError = job.err
 			}
-			if len(down.jobs) == 0 {
+			if len(down.Jobs) == 0 {
 				if addingJobLock {
 					// flush the new one
 					jobs := <-down.insertJob
 					jobs[0].body.Close()
 				}
 				if state == S_STOPPING {
-					mainError = pausedError
+					mainError = PausedError
 				} else if state != S_FAILING && job.err != nil && mainError == nil {
 					// no previous errors, record this one
 					mainError = job.err
@@ -327,22 +327,22 @@ func (down *Download) coordinate() {
 						}
 					}
 					down.saveProgress()
-					down.err <- mainError
+					down.Err <- mainError
 					return
 				}
 				// finished downloading, start rebuilding
-				if down.length < 0 { // length was unknown, now known
-					down.length = job.length
+				if down.Length < 0 { // length was unknown, now known
+					down.Length = job.length
 				}
 				state = S_REBUILDING
 				down.rebuild()
 			} else if failed { // failed
 				state = S_FAILING
-				for _, job := range down.jobs { // start pausing others
+				for _, job := range down.Jobs { // start pausing others
 					job.body.Close()
 					close(job.bufLenCh)
 				}
-			} else if state == S_DOWNLOADING && !addingJobLock && len(down.jobs) < down.maxConns {
+			} else if state == S_DOWNLOADING && !addingJobLock && len(down.Jobs) < down.maxConns {
 				addingJobLock = down.addJob() == nil
 			}
 		case now := <-timer.C: // status update time
@@ -351,14 +351,14 @@ func (down *Download) coordinate() {
 			if state == S_REBUILDING {
 				stat, err := down.jobsDone[0].file.Stat()
 				if err != nil {
-					down.err <- nil // maybe rebuilding finished already
+					down.Err <- nil // maybe rebuilding finished already
 					return
 				}
-				if down.emitStatus != nil && len(down.emitStatus) == 0 {
-					down.emitStatus <- status{
-						Id:         down.id,
+				if down.Status != nil && len(down.Status) == 0 {
+					down.Status <- Status{
+						Id:         down.Id,
 						Rebuilding: true,
-						Percent:    float64(stat.Size()) / float64(down.length) * 100,
+						Percent:    float64(stat.Size()) / float64(down.Length) * 100,
 					}
 				}
 				continue
@@ -379,7 +379,7 @@ func (down *Download) coordinate() {
 						down.initJob(job)
 						go down.download(job)
 						// add this job to the collection
-						down.jobs[job.offset] = job
+						down.Jobs[job.offset] = job
 						// subtract length from the helped job
 						longest.length -= job.length
 					} else {
@@ -389,15 +389,15 @@ func (down *Download) coordinate() {
 					job.body.Close()
 				}
 			}
-			if len(down.jobs) < down.maxConns {
+			if len(down.Jobs) < down.maxConns {
 				addingJobLock = down.addJob() == nil
 			} else {
 				addingJobLock = false
 			}
-		case <-down.stop:
+		case <-down.Stop:
 			if state == S_DOWNLOADING {
 				state = S_STOPPING
-				for _, job := range down.jobs { // start pausing
+				for _, job := range down.Jobs { // start pausing
 					job.body.Close()
 					close(job.bufLenCh)
 				}
@@ -406,23 +406,23 @@ func (down *Download) coordinate() {
 	}
 }
 
-func (down *Download) start() error {
+func (down *Download) Start() error {
 	firstJob := &downJob{}
 	resp := down.getResponse(firstJob)
 	if firstJob.err != nil {
 		return firstJob.err
 	}
 	// get filename
-	down.filename = getFilename(resp)
-	os.Mkdir(filepath.Join(down.dir, PART_DIR_NAME), 666)
+	down.Filename = getFilename(resp)
+	os.Mkdir(filepath.Join(down.Dir, PART_DIR_NAME), 666)
 	file, err := os.Create(down.jobFileName(0))
 	if err != nil {
 		return err
 	}
 	firstJob.file = file
 	down.initJob(firstJob)
-	down.length = firstJob.length
-	down.jobs[0] = firstJob
+	down.Length = firstJob.length
+	down.Jobs[0] = firstJob
 	go down.download(firstJob)
 	go down.coordinate()
 	return nil
@@ -439,8 +439,8 @@ func (down *Download) rebuild() {
 			down.jobDone <- &downJob{offset: -1, err: err}
 		}()
 		file := down.jobsDone[0].file
-		if down.length < 0 { // unknown file size, single connection, length set at end
-			down.length = down.jobsDone[0].length
+		if down.Length < 0 { // unknown file size, single connection, length set at end
+			down.Length = down.jobsDone[0].length
 		}
 		for _, job := range down.jobsDone[1:] {
 			if _, err = job.file.Seek(0, 0); err != nil {
@@ -460,18 +460,18 @@ func (down *Download) rebuild() {
 			return
 		}
 		// add number if another file with same name exists
-		if _, err := os.Stat(filepath.Join(down.dir, down.filename)); !os.IsNotExist(err) {
-			ext := filepath.Ext(down.filename)
-			base := string(down.filename[:len(down.filename)-len(ext)])
+		if _, err := os.Stat(filepath.Join(down.Dir, down.Filename)); !os.IsNotExist(err) {
+			ext := filepath.Ext(down.Filename)
+			base := string(down.Filename[:len(down.Filename)-len(ext)])
 			for i := 1; ; i++ {
 				newName := fmt.Sprintf("%s (%d)%s", base, i, ext)
-				if _, err := os.Stat(filepath.Join(down.dir, newName)); os.IsNotExist(err) {
-					down.filename = newName
+				if _, err := os.Stat(filepath.Join(down.Dir, newName)); os.IsNotExist(err) {
+					down.Filename = newName
 					break
 				}
 			}
 		}
-		if err = os.Rename(file.Name(), filepath.Join(down.dir, down.filename)); err != nil {
+		if err = os.Rename(file.Name(), filepath.Join(down.Dir, down.Filename)); err != nil {
 			return
 		}
 		os.Remove(filepath.Dir(file.Name())) // only if empty
@@ -479,10 +479,10 @@ func (down *Download) rebuild() {
 }
 
 func (down *Download) saveProgress() error {
-	prog := progress{
-		Id:       down.id,
-		Url:      down.url,
-		Filename: down.filename,
+	prog := Progress{
+		Id:       down.Id,
+		Url:      down.Url,
+		Filename: down.Filename,
 	}
 	for _, job := range down.jobsDone {
 		jobProg := map[string]int64{
@@ -492,7 +492,7 @@ func (down *Download) saveProgress() error {
 		}
 		prog.Parts = append(prog.Parts, jobProg)
 	}
-	f, err := os.Create(filepath.Join(down.dir, PART_DIR_NAME, fmt.Sprintf("%s.%d%s", down.filename, down.id, PROG_FILE_EXT)))
+	f, err := os.Create(filepath.Join(down.Dir, PART_DIR_NAME, fmt.Sprintf("%s.%d%s", down.Filename, down.Id, PROG_FILE_EXT)))
 	if err != nil {
 		return err
 	}
@@ -501,15 +501,15 @@ func (down *Download) saveProgress() error {
 	return nil
 }
 
-func (down *Download) resume(progressFile string) (err error) {
+func (down *Download) Resume(progressFile string) (err error) {
 	defer func() {
 		if err != nil {
-			for _, job := range down.jobs {
+			for _, job := range down.Jobs {
 				job.file.Close()
 			}
 		}
 	}()
-	var prog progress
+	var prog Progress
 	f, err := os.Open(progressFile)
 	if err != nil {
 		return err
@@ -518,12 +518,12 @@ func (down *Download) resume(progressFile string) (err error) {
 		return err
 	}
 	f.Close()
-	down.id = prog.Id
-	if down.url == "" {  // may be set before calling resume(), to renew url
-		down.url = prog.Url
+	down.Id = prog.Id
+	if down.Url == "" {  // may be set before calling resume(), to renew url
+		down.Url = prog.Url
 	}
-	down.dir = filepath.Dir(filepath.Dir(progressFile))
-	down.filename = prog.Filename
+	down.Dir = filepath.Dir(filepath.Dir(progressFile))
+	down.Filename = prog.Filename
 	for _, job := range prog.Parts {
 		newJob := &downJob{
 			offset:   job["offset"],
@@ -550,11 +550,11 @@ func (down *Download) resume(progressFile string) (err error) {
 		}
 		newJob.file = file
 		if newJob.received < newJob.length { // unfinished
-			down.jobs[newJob.offset] = newJob
+			down.Jobs[newJob.offset] = newJob
 		} else {
 			down.jobsDone = append(down.jobsDone, newJob)
 		}
-		down.length += newJob.length
+		down.Length += newJob.length
 	}
 	// make requests
 	requestErr := make(chan error)
@@ -562,16 +562,16 @@ func (down *Download) resume(progressFile string) (err error) {
 		down.getResponse(job)
 		requestErr <- job.err
 	}
-	for _, job := range down.jobs {
+	for _, job := range down.Jobs {
 		go request(job)
 	}
 	// check requests errors
-	for i := 0; i < len(down.jobs); i++ {
+	for i := 0; i < len(down.Jobs); i++ {
 		if err := <-requestErr; err != nil {
 			return err
 		}
 	}
-	for _, job := range down.jobs {
+	for _, job := range down.Jobs {
 		down.initJob(job)
 		go down.download(job)
 	}
@@ -580,23 +580,23 @@ func (down *Download) resume(progressFile string) (err error) {
 	return nil
 }
 
-type progress struct {
+type Progress struct {
 	Id       int                `json:"id"`
 	Url      string             `json:"url"`
 	Filename string             `json:"filename"`
 	Parts    []map[string]int64 `json:"parts"`
 }
 
-func newDownload(url string, maxConns int, id int, dir string) *Download {
+func New(url string, maxConns int, id int, dir string) *Download {
 	down := Download{
-		id:         id,
-		url:        url,
-		dir:        dir,
+		Id:         id,
+		Url:        url,
+		Dir:        dir,
 		maxConns:   maxConns,
-		jobs:       map[int64]*downJob{},
-		err:        make(chan error),
-		stop:       make(chan os.Signal, 1),
-		emitStatus: make(chan status, 1), // buffered to bypass emitting if no consumer and continue updating, coordinate()
+		Jobs:       map[int64]*downJob{},
+		Err:        make(chan error),
+		Stop:       make(chan os.Signal, 1),
+		Status: make(chan Status, 1), // buffered to bypass emitting if no consumer and continue updating, coordinate()
 		insertJob:  make(chan [2]*downJob),
 		checkJob:   make(chan checkJob, 10),
 		jobDone:    make(chan *downJob),

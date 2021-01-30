@@ -1,6 +1,6 @@
 // -{go test}
 
-package main
+package download
 
 import (
 	"testing"
