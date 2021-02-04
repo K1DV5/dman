@@ -1,7 +1,7 @@
-let bg = chrome.extension.getBackgroundPage()
+let {downloads, states} = chrome.extension.getBackgroundPage()
 
-bg.switchUpdates(true)
-window.addEventListener('close', () => bg.switchUpdates(false))
+downloads.switchUpdates(true)
+window.addEventListener('close', () => downloads.switchUpdates(false))
 
 // ================ URL ======================
 
@@ -38,11 +38,9 @@ function resetUrl() {
 urlInput.addEventListener('keypress', event => {
     if (event.key == 'Enter') {
         commitUrl()
-    } else if (event.key == 'Esc') {
-        event.preventDefault()
-        resetUrl()
     }
 })
+
 document.getElementById('add-url').addEventListener('click', commitUrl)
 document.getElementById('cancel-url').addEventListener('click', resetUrl)
 
@@ -50,21 +48,21 @@ document.getElementById('cancel-url').addEventListener('click', resetUrl)
 
 let lastFocusItem
 
-let partsNames = ['progress', 'percent', 'speed', 'eta', 'conns']
+const partsNames = ['progress', 'percent', 'speed', 'eta', 'conns']
 
-let progressBarColors = {
-    [bg.S_DOWNLOADING]: 'cyan',
-    [bg.S_FAILED]: 'red',
-    [bg.S_PAUSED]: 'grey',
-    [bg.S_REBUILDING]: 'lightgreen',
-    [bg.S_WAIT_URL]: 'orange',
+const progressBarColors = {
+    [states.downloading]: 'cyan',
+    [states.failed]: 'red',
+    [states.paused]: 'grey',
+    [states.rebuilding]: 'lightgreen',
+    [states.urlPending]: 'orange',
 }
 
-let staticMsgs = {
-    [bg.S_PAUSED]: 'Paused',
-    [bg.S_FAILED]: 'Failed',
-    [bg.S_REBUILDING]: 'Rebuilding...',
-    [bg.S_WAIT_URL]: 'Waiting for new URL...',
+const staticMsgs = {
+    [states.paused]: 'Paused',
+    [states.failed]: 'Failed',
+    [states.rebuilding]: 'Rebuilding...',
+    [states.urlPending]: 'Waiting for new URL...',
 }
 
 customElements.define('download-item', class extends HTMLElement {
@@ -83,10 +81,10 @@ customElements.define('download-item', class extends HTMLElement {
 
     async connectedCallback() {
         this.setAttribute('tabindex', 0)
-        this.data = bg.downloads[this.id]
+        this.data = downloads.items[this.id]
 
         this.icon = document.createElement('img')
-        this.icon.src = bg.icons[this.data.icon]?.url
+        this.icon.src = downloads.icons[this.data.icon]?.url
         this.appendChild(this.icon)
 
         this.fname = document.createElement("ui-name")
@@ -101,7 +99,7 @@ customElements.define('download-item', class extends HTMLElement {
         this.date.innerText = new Date(this.data.date).toLocaleDateString()
         this.appendChild(this.date)
 
-        if (this.data.state == bg.S_COMPLETED) {
+        if (this.data.state == states.completed) {
             return
         }
         for (let name of partsNames) {
@@ -111,7 +109,7 @@ customElements.define('download-item', class extends HTMLElement {
     }
 
     async update() {
-        if (this.data.state == bg.S_COMPLETED) {
+        if (this.data.state == states.completed) {
             this.size.innerText = this.data.size
             this.fname.innerText = this.data.filename
             for (let e of partsNames) {
@@ -122,10 +120,10 @@ customElements.define('download-item', class extends HTMLElement {
         }
         // not completed
         this.size.innerText = this.data.written + ' / ' + this.data.size
-        let lastPartI = this.data.state == bg.S_DOWNLOADING ? partsNames.length : 1
+        let lastPartI = this.data.state == states.downloading ? partsNames.length : 1
+        let percent = (Math.round(this.data.percent * 100) / 100) + '%'
         for (let name of partsNames.slice(0, lastPartI)) {
             let elm = this[name]
-            let percent = (Math.round(this.data.percent * 100) / 100) + '%'
             switch (name) {
                 case 'progress':
                     elm.style.width = percent
@@ -144,7 +142,7 @@ customElements.define('download-item', class extends HTMLElement {
                 this.appendChild(elm)
             }
         }
-        if (this.data.state != bg.S_DOWNLOADING) {
+        if (this.data.state != states.downloading) {
             let msgElm = this[partsNames[lastPartI]]
             msgElm.innerText = staticMsgs[this.data.state]
             this.appendChild(msgElm)
@@ -161,13 +159,13 @@ let inProgressItems = {};  // elements by id, to update without using document.g
 (() => {
     // populate the list
     let items = document.createDocumentFragment()  // to reduce redrawing
-    for (let [id, data] of Object.entries(bg.downloads)
+    for (let [id, data] of Object.entries(downloads.items)
         .sort((a, b) => a[1].date < b[1].date ? 1 : -1)  // by date, most recent
         .sort((a, b) => a[1].state < b[1].state ? -1 : 1)) {  // by status, in progress at the top
         let item = document.createElement('download-item')
         item.id = id
         items.appendChild(item)
-        if (data.state != bg.S_COMPLETED) {
+        if (data.state != states.completed) {
             inProgressItems[id] = item
         }
     }
@@ -178,30 +176,25 @@ function add(id, data) {
     let item = document.createElement('download-item')
     item.id = id
     list.insertAdjacentElement('afterbegin', item)
-    if (data.state != bg.S_COMPLETED) {
+    if (data.state != states.completed) {
         inProgressItems[id] = item
     }
 }
 
 function update(id) {
     inProgressItems[id].update()
-    if (bg.downloads[id].state == bg.S_COMPLETED) {
+    if (downloads.items[id].state == states.completed) {
         delete inProgressItems[id]
     }
 }
 
 // ===================== LIST ======================
 
-function finishRemove(id) {
-    let item = document.getElementById(id)
-    if (item == null) return
-    item.remove()
-}
-
 document.getElementById('remove').addEventListener('click', event => {
     event.preventDefault()
     if (lastFocusItem == null) return
-    if (bg.removeItem(lastFocusItem.id)) {
+    if (downloads.remove(lastFocusItem.id)) {
+        lastFocusItem.remove()
         lastFocusItem = undefined
     }
 })
@@ -209,22 +202,21 @@ document.getElementById('remove').addEventListener('click', event => {
 function pauseResume(event) {
     event.preventDefault()
     if (lastFocusItem == null) return
-    let stateTo = event.target.id == 'pause' ? bg.S_PAUSED : bg.S_DOWNLOADING
-    bg.changeState(Number(lastFocusItem.id), stateTo)
+    let stateTo = event.target.id == 'pause' ? states.paused : states.downloading
+    downloads.changeState(Number(lastFocusItem.id), stateTo)
 }
 document.getElementById('pause').addEventListener('click', pauseResume)
 document.getElementById('pause-all').addEventListener('click', () => {
     event.preventDefault()
-    bg.pauseAll()
+    downloads.pauseAll()
 })
 document.getElementById('resume').addEventListener('click', pauseResume)
 
 document.getElementById('clear').addEventListener('click', event => {
     event.preventDefault()
-    for (let [id, down] of Object.entries(bg.downloads)) {
-        // clear only the completed, paused and failed ones
-        if (!(down.state == bg.S_DOWNLOADING || down.state == bg.S_REBUILDING)) {
-            bg.removeItem(Number(id))
+    for (let id of Object.keys(downloads.items)) {
+        if (downloads.remove(Number(id))) {
+            document.getElementById(id)?.remove()
         }
     }
 })
@@ -233,9 +225,9 @@ function openPath(event) {
     event.preventDefault()
     if (lastFocusItem == null) return
     if (event.target.id == 'open') {
-        bg.openFile(Number(lastFocusItem.id))
+        downloads.openFile(Number(lastFocusItem.id))
     } else {
-        bg.openDir(Number(lastFocusItem.id))
+        downloads.openDir(Number(lastFocusItem.id))
     }
 }
 
@@ -245,18 +237,18 @@ document.getElementById('folder').addEventListener('click', openPath)
 document.getElementById('change-url').addEventListener('click', event => {
     event.preventDefault()
     if (lastFocusItem == null) return
-    let down = bg.downloads[lastFocusItem.id]
-    if (bg.waitingUrl) {
-        let lastWaiting = bg.downloads[bg.waitingUrl].state
+    let down = downloads.items[lastFocusItem.id]
+    if (downloads.urlPending) {
+        let lastWaiting = downloads[downloads.urlPending].state
         if (lastWaiting.error) {
-            lastWaiting.state = bg.S_FAILED
+            lastWaiting.state = states.failed
         } else {
-            lastWaiting.state = bg.S_PAUSED
+            lastWaiting.state = states.paused
         }
     }
-    bg.waitingUrl = Number(lastFocusItem.id)
-    if ([bg.S_FAILED, bg.S_PAUSED, bg.S_WAIT_URL].includes(bg.downloads[lastFocusItem.id].state)) {
-        down.state = bg.S_WAIT_URL
+    downloads.urlPending = Number(lastFocusItem.id)
+    if ([states.failed, states.paused, states.urlPending].includes(downloads.items[lastFocusItem.id].state)) {
+        down.state = states.urlPending
         update(Number(lastFocusItem.id))
     }
 })
@@ -266,7 +258,7 @@ document.getElementById('copy-url').addEventListener('click', () => {
     if (lastFocusItem == undefined) {
         return
     }
-    navigator.clipboard.writeText(bg.downloads[lastFocusItem.id]?.url)
+    navigator.clipboard.writeText(downloads.items[lastFocusItem.id]?.url)
 })
 
 // ==================== SETTINGS ===================
@@ -358,7 +350,7 @@ document.getElementById('save-settings').addEventListener('click', event => {
     }
     chrome.storage.local.set({ settings }, () => {
         retrieveSettings()
-        bg.settings = settings
+        downloads.settings = settings
     })
 })
 
