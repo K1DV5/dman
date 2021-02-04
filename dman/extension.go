@@ -179,40 +179,32 @@ func (downs *downloads) handleMsg(msg message) {
 }
 
 func (downs *downloads) remove(info message) {
-	msg := message{Id: info.Id, Type: "remove"}
 	f, err := os.Open(filepath.Join(info.Dir, download.PART_DIR_NAME, fmt.Sprintf("%s.%d%s", info.Filename, info.Id, download.PROG_FILE_EXT)))
 	if err != nil {
-		msg.Error = err.Error()
-		msg.send()
+		message{Type: "error", Error: err.Error()}.send()
 		return
 	}
 	var prog download.Progress
 	if err := json.NewDecoder(f).Decode(&prog); err != nil {
-		msg.Error = err.Error()
-		msg.send()
+		message{Type: "error", Error: err.Error()}.send()
 		return
 	}
 	if err := f.Close(); err != nil {
-		msg.Error = err.Error()
-		msg.send()
+		message{Type: "error", Error: err.Error()}.send()
 		return
 	}
 	if err := os.Remove(f.Name()); err != nil {
-		msg.Error = err.Error()
-		msg.send()
+		message{Type: "error", Error: err.Error()}.send()
 		return
 	}
 	for _, part := range prog.Parts {
 		fname := filepath.Join(info.Dir, download.PART_DIR_NAME, fmt.Sprintf("%s.%d.%d", info.Filename, info.Id, part["offset"]))
 		if err = os.Remove(fname); err != nil {
-			msg.Error = err.Error()
-			msg.send()
+			message{Type: "error", Error: err.Error()}.send()
 			return
 		}
 	}
 	os.Remove(filepath.Join(info.Dir, download.PART_DIR_NAME))
-	msg.Id = prog.Id
-	msg.send()
 }
 
 func (downs *downloads) finishInsertDown(down *download.Download, completed chan completedInfo) {
@@ -243,6 +235,7 @@ func (downs *downloads) handleCompleted(info completedInfo) {
 	if info.err == nil {
 		msg.Type = "completed"
 		msg.Filename = info.down.Filename
+		msg.Size = download.ReadableSize(info.down.Length)
 	} else if info.err == download.PausedError {
 		msg.Type = "pause"
 	} else {
