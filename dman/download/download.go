@@ -519,7 +519,7 @@ func (down *Download) Resume(progressFile string) (err error) {
 	}
 	f.Close()
 	down.Id = prog.Id
-	if down.Url == "" {  // may be set before calling resume(), to renew url
+	if down.Url == "" { // may be set before calling resume(), to renew url
 		down.Url = prog.Url
 	}
 	down.Dir = filepath.Dir(filepath.Dir(progressFile))
@@ -539,13 +539,16 @@ func (down *Download) Resume(progressFile string) (err error) {
 			return err
 		}
 		if flen := stat.Size(); flen != newJob.received {
-			if flen < newJob.received {  // known size is incorrect, redownload the missing data
+			if flen < newJob.received { // known size is incorrect, redownload the missing data
 				newJob.received = flen
-			} else if err := file.Truncate(flen); err != nil {  // cannot be sure that the excess data is correct, so truncate
-				return err
+			} else if flen > newJob.length  {
+				// for some reason, the file is bigger than desired, truncate to desired size
+				if err := file.Truncate(newJob.length); err != nil {
+					return err
+				}
 			}
 		}
-		if _, err := file.Seek(0, io.SeekEnd); err != nil {  // go to the end
+		if _, err := file.Seek(0, io.SeekEnd); err != nil { // go to the end
 			return err
 		}
 		newJob.file = file
@@ -589,17 +592,17 @@ type Progress struct {
 
 func New(url string, maxConns int, id int, dir string) *Download {
 	down := Download{
-		Id:         id,
-		Url:        url,
-		Dir:        dir,
-		maxConns:   maxConns,
-		Jobs:       map[int64]*downJob{},
-		Err:        make(chan error),
-		Stop:       make(chan os.Signal, 1),
-		Status: make(chan Status, 1), // buffered to bypass emitting if no consumer and continue updating, coordinate()
-		insertJob:  make(chan [2]*downJob),
-		checkJob:   make(chan checkJob, 10),
-		jobDone:    make(chan *downJob),
+		Id:        id,
+		Url:       url,
+		Dir:       dir,
+		maxConns:  maxConns,
+		Jobs:      map[int64]*downJob{},
+		Err:       make(chan error),
+		Stop:      make(chan os.Signal, 1),
+		Status:    make(chan Status, 1), // buffered to bypass emitting if no consumer and continue updating, coordinate()
+		insertJob: make(chan [2]*downJob),
+		checkJob:  make(chan checkJob, 10),
+		jobDone:   make(chan *downJob),
 	}
 	return &down
 }

@@ -5,11 +5,11 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"github.com/K1DV5/dman/dman/download"
 	"io"
 	"os"
 	"path/filepath"
 	"time"
-	"github.com/K1DV5/dman/dman/download"
 )
 
 var byteOrder = binary.LittleEndian // most likely
@@ -17,16 +17,16 @@ var byteOrder = binary.LittleEndian // most likely
 type message struct {
 	// Incoming types: add, pause, pause-all, resume, info
 	// Outgoing types: add, pause, pause-all, resume, info, completed, error
-	Type     string   `json:"type"`
-	Url      string   `json:"url,omitempty"`
-	Id       int      `json:"id,omitempty"`
-	Filename string   `json:"filename,omitempty"`
-	Size     string   `json:"size,omitempty"`
-	Conns    int      `json:"conns,omitempty"`
+	Type     string            `json:"type"`
+	Url      string            `json:"url,omitempty"`
+	Id       int               `json:"id,omitempty"`
+	Filename string            `json:"filename,omitempty"`
+	Size     string            `json:"size,omitempty"`
+	Conns    int               `json:"conns,omitempty"`
 	Stats    []download.Status `json:"stats,omitempty"`
-	Info     bool     `json:"info,omitempty"`
-	Error    string   `json:"error,omitempty"`
-	Dir      string   `json:"dir,omitempty"`
+	Info     bool              `json:"info,omitempty"`
+	Error    string            `json:"error,omitempty"`
+	Dir      string            `json:"dir,omitempty"`
 }
 
 func (msg *message) get() error {
@@ -79,15 +79,15 @@ func (downs *downloads) addDownload() {
 			Id:   info.Id,
 		}
 		var errMsg string
-		if info.Filename == "" {  // new
+		if info.Filename == "" { // new
 			// create dir if it doesn't exist
 			os.Mkdir(info.Dir, 666)
 			if err := down.Start(); err != nil { // set filename as well
 				errMsg = fmt.Sprintf("\rStart error: %s", err.Error())
 			}
-		} else {  // resume
+		} else { // resume
 			progressFile := filepath.Join(info.Dir, download.PART_DIR_NAME, fmt.Sprintf("%s.%d%s", info.Filename, info.Id, download.PROG_FILE_EXT))
-			if err := down.Resume(progressFile); err != nil {  // set filename as well
+			if err := down.Resume(progressFile); err != nil { // set filename as well
 				errMsg = fmt.Sprintf("\rResume error: %s", err.Error())
 			}
 		}
@@ -137,7 +137,7 @@ func (downs *downloads) listen() {
 				return
 			}
 			message{
-				Type: "error",
+				Type:  "error",
 				Error: err.Error(),
 			}.send()
 			continue
@@ -279,7 +279,7 @@ func (downs *downloads) coordinate(kill chan bool) {
 		case <-timer.C:
 			if !sendingInfo {
 				continue
-			} else if stopping {  // stopping timed out
+			} else if stopping { // stopping timed out
 				close(kill)
 				return
 			}
