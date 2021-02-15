@@ -57,6 +57,13 @@ ui-list {
     margin-top: .5em;
 }
 
+ui-list:empty:after {
+    display: block;
+    content: "Downloads appear here.";
+    width: 100%;
+    text-align: center
+}
+
 download-item {
     display: grid;
     grid-gap: .3em 1em;
