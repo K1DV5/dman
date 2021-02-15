@@ -8,10 +8,10 @@ package main
 
 import (
 	"fmt"
+	"github.com/K1DV5/dman/dman/download"
 	"os"
 	"os/signal"
 	"strings"
-	"github.com/K1DV5/dman/dman/download"
 )
 
 func showProgress(status chan download.Status) {
@@ -33,7 +33,7 @@ func showProgress(status chan download.Status) {
 
 func standalone() {
 	d := download.New("", 32, 0, ".")
-	if strings.HasPrefix(os.Args[1], "http://") || strings.HasPrefix(os.Args[1], "https://") {  // new
+	if strings.HasPrefix(os.Args[1], "http://") || strings.HasPrefix(os.Args[1], "https://") { // new
 		fmt.Print("Starting...")
 		d.Url = os.Args[1]
 		if err := d.Start(); err != nil { // set filename as well
@@ -61,9 +61,9 @@ func standalone() {
 	if err == nil {
 		fmt.Println("\rFinished", strings.Repeat(" ", 70))
 	} else if err == download.PausedError {
-		fmt.Printf("\rPaused, saved progress to '%s/%s.%d%s'.", download.PART_DIR_NAME, d.Filename, d.Id, download.PROG_FILE_EXT)
+		fmt.Printf("\rPaused, saved progress to '%s/%s.%d%s'.\n", download.PART_DIR_NAME, d.Filename, d.Id, download.PROG_FILE_EXT)
 	} else {
-		fmt.Printf("\rFailed: %v\nProgress saved to '%s/%s.%d%s'.", err, download.PART_DIR_NAME, d.Filename, d.Id, download.PROG_FILE_EXT)
+		fmt.Printf("\rFailed: %v\nProgress saved to '%s/%s.%d%s'.\n", err, download.PART_DIR_NAME, d.Filename, d.Id, download.PROG_FILE_EXT)
 	}
 }
 
