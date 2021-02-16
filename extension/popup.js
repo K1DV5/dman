@@ -65,6 +65,25 @@ const staticMsgs = {
     [states.urlPending]: 'Waiting for new URL...',
 }
 
+const buttonsOnItems = {
+    resume: document.getElementById('resume'),
+    pause: document.getElementById("pause"),
+    copyUrl: document.getElementById("copy-url"),
+    changeUrl: document.getElementById('change-url'),
+    open: document.getElementById('open'),
+    folder: document.getElementById('folder'),
+    remove: document.getElementById('remove'),
+}
+
+const buttonsByState = {
+    [states.downloading]: ['pause', 'copyUrl', 'changeUrl'],
+    [states.failed]: ['resume', 'copyUrl', 'changeUrl', 'remove'],
+    [states.paused]: ['resume', 'copyUrl', 'changeUrl', 'remove'],
+    [states.rebuilding]: ['copyUrl'],
+    [states.urlPending]: ['resume', 'copyUrl', 'remove'],
+    [states.completed]: ['copyUrl', 'open', 'folder', 'remove'],
+}
+
 customElements.define('download-item', class extends HTMLElement {
 
     constructor(...args) {
@@ -76,7 +95,18 @@ customElements.define('download-item', class extends HTMLElement {
             }
             this.setAttribute('focused', true)  // for styling
             lastFocusItem = this
+            this.updateButtons()
         })
+    }
+
+    updateButtons() {
+        for (let [id, butt] of Object.entries(buttonsOnItems)) {
+            if (buttonsByState[this.data.state].includes(id)) {
+                butt.style.display = 'inline'
+            } else {
+                butt.style.display = 'none'
+            }
+        }
     }
 
     async connectedCallback() {
@@ -109,6 +139,9 @@ customElements.define('download-item', class extends HTMLElement {
     }
 
     async update() {
+        if (this.id == lastFocusItem?.id) {
+            this.updateButtons()
+        }
         if (this.data.state == states.completed) {
             this.size.innerText = this.data.size
             this.fname.innerText = this.data.filename
@@ -265,30 +298,22 @@ document.getElementById('copy-url').addEventListener('click', () => {
 
 let settingsElements
 
-document.getElementById('settings-butt').addEventListener('click', event => {
-    let downs = document.getElementsByTagName('ui-downloads')[0].style
-    let setts = document.getElementsByTagName('ui-settings')[0].style
-    if (downs.display == '' || downs.display == 'block') {
-        // list shown, show settings
-        event.target.innerText = 'Back'
-        downs.display = 'none'
-        setts.display = 'block'
-        if (settingsElements == undefined) {
-            settingsElements = {
-                categories: document.getElementById('categories'),
-                conns: document.getElementById('conns'),
-                notify: {
-                    begin: document.getElementById('notify-begin'),
-                    end: document.getElementById('notify-end'),
-                },
-            }
-        }
-        retrieveSettings()
-    } else {
-        event.target.innerText = 'Settings'
-        downs.display = 'block'
-        setts.display = 'none'
+document.getElementById('settings').addEventListener('change', event => {
+    if (!event.target.checked) {
+        return
     }
+    // update settings
+    if (settingsElements == undefined) {
+        settingsElements = {
+            categories: document.getElementById('categories'),
+            conns: document.getElementById('conns'),
+            notify: {
+                begin: document.getElementById('notify-begin'),
+                end: document.getElementById('notify-end'),
+            },
+        }
+    }
+    retrieveSettings()
 })
 
 function parseCats(cats) {
@@ -351,6 +376,12 @@ document.getElementById('save-settings').addEventListener('click', event => {
     chrome.storage.local.set({ settings }, () => {
         retrieveSettings()
         downloads.settings = settings
+        let prevText = event.target.innerText
+        console.log(prevText)
+        event.target.innerText = 'Saved'
+        setTimeout(() => {
+            event.target.innerText = prevText
+        }, 1000)
     })
 })
 

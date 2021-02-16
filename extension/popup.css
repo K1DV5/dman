@@ -9,12 +9,18 @@ html {
     width: 30em;
 }
 
+body {
+    margin: 0
+}
+
 /************* HEADER *************/
 ui-head {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: .5em;
+    align-items: center;
+    background: #06C;
+    color: white;
+    padding: .8em;
 }
 
 ui-head > div {
@@ -22,39 +28,70 @@ ui-head > div {
     font-weight: bold;
 }
 
+#settings {
+    display: none
+}
+
+label[for=settings] {
+    font-size: 150%;
+    padding: 0 .5em;
+    cursor: pointer;
+}
+
+#settings:checked ~ ui-downloads {
+    display: none
+}
+
+#settings:checked ~ ui-settings {
+    display: block
+}
+
 /****************** TOOLBAR ****************/
 
-input {
-    border: solid 1px grey;
-    outline-color: grey;
+input[type=text] {
+    border: 1px solid #8888;
+    font-size: 90%;
+    margin: .2em;
+}
+
+input[type=text]:focus {
+    border: 1px solid #06C;
+    outline: none;
 }
 
 button {
-    background: transparent;
-    border: solid 1px grey;
-    outline-color: grey;
-    border-radius: .2em;
+    background: none;
+    color: #06C;
+    border: 1px solid #8888;
+    padding: .3em .5em;
+    font-size: 90%;
+    font-weight: bold;
+    margin: .2em;
 }
 
 button:active {
     background: #8888;
 }
 
-ui-toolbar > button {
-    font-size: 80%;
-    margin-bottom: .5em;
+button:focus {
+    outline: none;
+}
+
+
+#resume, #pause, #copy-url, #change-url, #open, #folder, #remove {
+    display: none;
 }
 
 ui-inputbar {
     display: none;
-    margin-bottom: .5em;
 }
 
 /****************** LIST ****************/
 
-ui-list {
+ui-downloads {
+    display: block;
+    padding: .5em;
     overflow-y: auto;
-    margin-top: .5em;
 }
 
 ui-list:empty:after {
@@ -75,10 +112,9 @@ download-item {
     align-items: center;
     width: 100%;
     margin-top: .5em;
-    padding: .3em 1em;
+    padding: .6em 1em;
     background: #5555;
     cursor: pointer;
-    border-radius: .3em;
 }
 
 download-item > img {
@@ -145,30 +181,45 @@ download-item:hover {
 }
 
 download-item[focused] {
-    background: #09F8;
-    outline: transparent
+    background: #09F5;
+    outline: none
 }
 
 /****************** SETTINGS ****************/
 
 ui-settings {
     display: none;
-    width: 100%;
-    margin-top: .5em;
-    border: solid 1px grey;
+    padding: .5em;
+}
+
+.left-right {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #5555;
+    margin: .8em 0;
     padding: .5em;
 }
 
 select {
-    border: solid 1px grey;
-    background: transparent;
+    border: none;
+    padding: .2em;
+    background: #5555;
 }
 
 select:focus {
     outline: transparent
 }
 
+.long-input {
+    margin: .4em 0;
+    background: #5555;
+    padding: .3em
+}
+
 textarea {
+    margin-top: .5em;
     width: 100%;
     height: 10em;
+    border: 1px solid #8888
 }

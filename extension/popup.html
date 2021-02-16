@@ -9,10 +9,11 @@
     <body>
         <ui-head>
             <div>Downloads</div>
-            <button id="settings-butt">Settings</button>
+            <label for="settings">&#9881;</label>
         </ui-head>
+        <input type="checkbox" id="settings">
         <ui-downloads>
-            <nav>
+            <div>
                 <ui-toolbar>
                     <button id="add" title="Add a new one">Add</button>
                     <button id="resume" title="Resume the download">Start</button>
@@ -28,14 +29,14 @@
                 <ui-inputbar>
                     <input type="text" placeholder="Paste URL here" id="url">
                     <button id="add-url">Go</button>
-                    <button id="cancel-url">&times;</button>
+                    <button id="cancel-url">Cancel</button>
                 </ui-inputbar>
-            </nav>
+            </div>
             <ui-list></ui-list>
         </ui-downloads>
 
         <ui-settings>
-            <p>
+            <div class="left-right">
                 <label for="conns">Connections: </label>
                 <select id="conns" name="conns">
                     <option value="1">1</option>
@@ -45,22 +46,19 @@
                     <option value="16">16</option>
                     <option value="32">32</option>
                 </select>
-            </p>
-            <fieldset>
-                <legend>Notifications</legend>
-                <div>
-                    <input type="checkbox" id="notify-begin">
-                    <label for="notify-begin">Download begin</label>
-                </div>
-                <div>
-                    <input type="checkbox" id="notify-end">
-                    <label for="notify-end">Download end</label>
-                </div>
-            </fieldset>
-            <fieldset>
+            </div>
+            <div class="left-right">
+                <label for="notify-begin">Download begin</label>
+                <input type="checkbox" id="notify-begin">
+            </div>
+            <div class="left-right">
+                <label for="notify-end">Download end</label>
+                <input type="checkbox" id="notify-end">
+            </div>
+            <div class="long-input">
                 <legend>File categories</legend>
                 <textarea id="categories" name="categories"></textarea>
-            </fieldset>
+            </div>
             <button id="save-settings">Save</button>
         </ui-settings>
 
