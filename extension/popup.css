@@ -56,6 +56,7 @@ input[type=text] {
     border: 1px solid #8888;
     font-size: 90%;
     margin: .2em;
+    width: 30em;
 }
 
 input[type=text]:focus {
@@ -186,7 +187,7 @@ download-item:focus > ui-name {
 }
 
 download-item:hover {
-    background: #09F3;
+    background: #09F2;
 }
 
 download-item[focused] {
