@@ -401,3 +401,10 @@ document.getElementById('reset-settings').addEventListener('click', event => {
         retrieveSettings()
     })
 })
+
+// open project source
+document.getElementById('source').addEventListener('click', event => {
+    event.preventDefault()
+    chrome.tabs.create({url: event.target.href})
+    window.close()
+})
