@@ -8,7 +8,7 @@
     </head>
     <body>
         <ui-head>
-            <div>Downloads</div>
+            <div id="title">Downloads</div>
             <label for="settings">&#9881;</label>
         </ui-head>
         <input type="checkbox" id="settings">
@@ -37,7 +37,7 @@
 
         <ui-settings>
             <div class="left-right">
-                <label for="conns">Connections: </label>
+                <label for="conns">Connections </label>
                 <select id="conns" name="conns">
                     <option value="1">1</option>
                     <option value="2">2</option>
@@ -47,6 +47,7 @@
                     <option value="32">32</option>
                 </select>
             </div>
+            <div>Notifications</div>
             <div class="left-right">
                 <label for="notify-begin">Download begin</label>
                 <input type="checkbox" id="notify-begin">
@@ -55,10 +56,8 @@
                 <label for="notify-end">Download end</label>
                 <input type="checkbox" id="notify-end">
             </div>
-            <div class="long-input">
-                <legend>File categories</legend>
-                <textarea id="categories" name="categories"></textarea>
-            </div>
+            <div>File categories</div>
+            <textarea id="categories" name="categories"></textarea>
             <button id="save-settings">Save</button>
         </ui-settings>
 

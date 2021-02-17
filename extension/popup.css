@@ -46,6 +46,10 @@ label[for=settings] {
     display: block
 }
 
+ui-downloads, ui-settings {
+    background: #8883;
+}
+
 /****************** TOOLBAR ****************/
 
 input[type=text] {
@@ -60,7 +64,7 @@ input[type=text]:focus {
 }
 
 button {
-    background: none;
+    background: canvas;
     color: #06C;
     border: 1px solid #8888;
     padding: .3em .5em;
@@ -91,6 +95,11 @@ ui-inputbar {
 ui-downloads {
     display: block;
     padding: .5em;
+}
+
+ui-list {
+    display: block;
+    max-height: 30em;
     overflow-y: auto;
 }
 
@@ -113,7 +122,7 @@ download-item {
     width: 100%;
     margin-top: .5em;
     padding: .6em 1em;
-    background: #5555;
+    background: canvas;
     cursor: pointer;
 }
 
@@ -196,9 +205,9 @@ ui-settings {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: #5555;
     margin: .8em 0;
     padding: .5em;
+    background: canvas;
 }
 
 select {
@@ -211,15 +220,17 @@ select:focus {
     outline: transparent
 }
 
-.long-input {
-    margin: .4em 0;
-    background: #5555;
-    padding: .3em
-}
-
 textarea {
+    margin: .4em 0;
+    resize: none;
+    padding: .3em;
     margin-top: .5em;
     width: 100%;
     height: 10em;
     border: 1px solid #8888
+}
+
+textarea:focus {
+    border: 1px solid #06C;
+    outline: none;
 }

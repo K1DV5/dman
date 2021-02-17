@@ -229,6 +229,10 @@ document.getElementById('remove').addEventListener('click', event => {
     if (downloads.remove(lastFocusItem.id)) {
         lastFocusItem.remove()
         lastFocusItem = undefined
+        // update buttons
+        for (let butt of Object.values(buttonsOnItems)) {
+            butt.style.display = 'none'
+        }
     }
 })
 
@@ -251,6 +255,13 @@ document.getElementById('clear').addEventListener('click', event => {
         if (downloads.remove(Number(id))) {
             document.getElementById(id)?.remove()
         }
+    }
+    if (downloads.items[lastFocusItem.id]) {
+        return
+    }
+    // focused item also cleared, update buttons
+    for (let butt of Object.values(buttonsOnItems)) {
+        butt.style.display = 'none'
     }
 })
 
@@ -297,11 +308,15 @@ document.getElementById('copy-url').addEventListener('click', () => {
 // ==================== SETTINGS ===================
 
 let settingsElements
+let headerTitle = document.getElementById('title').innerText
 
 document.getElementById('settings').addEventListener('change', event => {
+    let header = document.getElementById('title')
     if (!event.target.checked) {
+        header.innerText = headerTitle
         return
     }
+    header.innerText = 'Settings'
     // update settings
     if (settingsElements == undefined) {
         settingsElements = {
