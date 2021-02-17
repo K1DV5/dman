@@ -363,19 +363,14 @@ function parseCats(cats) {
 }
 
 function retrieveSettings() {
-    chrome.storage.local.get('settings', res => {
-        if (res.settings == undefined) {
-            return
-        }
-        settingsElements.conns.value = res.settings.conns
-        let cats = []
-        for (let [name, exts] of Object.entries(res.settings.categories)) {
-            cats.push(name + ': ' + exts.join(' '))
-        }
-        settingsElements.categories.value = cats.join('\n')
-        settingsElements.notify.begin.checked = res.settings.notify.begin
-        settingsElements.notify.end.checked = res.settings.notify.end
-    })
+    settingsElements.conns.value = downloads.settings.conns
+    let cats = []
+    for (let [name, exts] of Object.entries(downloads.settings.categories)) {
+        cats.push(name + ': ' + exts.join(' '))
+    }
+    settingsElements.categories.value = cats.join('\n')
+    settingsElements.notify.begin.checked = downloads.settings.notify.begin
+    settingsElements.notify.end.checked = downloads.settings.notify.end
 }
 
 document.getElementById('save-settings').addEventListener('click', event => {
@@ -389,10 +384,9 @@ document.getElementById('save-settings').addEventListener('click', event => {
         }
     }
     chrome.storage.local.set({ settings }, () => {
-        retrieveSettings()
         downloads.settings = settings
+        retrieveSettings()
         let prevText = event.target.innerText
-        console.log(prevText)
         event.target.innerText = 'Saved'
         setTimeout(() => {
             event.target.innerText = prevText
@@ -400,3 +394,10 @@ document.getElementById('save-settings').addEventListener('click', event => {
     })
 })
 
+document.getElementById('reset-settings').addEventListener('click', event => {
+    event.preventDefault()
+    chrome.storage.local.set({ settings: downloads.settingsDefault }, () => {
+        downloads.settings = downloads.settingsDefault
+        retrieveSettings()
+    })
+})

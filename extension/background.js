@@ -66,9 +66,15 @@ class Downloads {
         }
 
         // settings
-        this.settings = {
+        this.settingsDefault = {
             conns: 1,
-            categories: {},
+            categories: {
+                Compressed: ['zip', 'rar'],
+                Documents: ['pdf', 'mobi', 'epub'],
+                Music: ['mp3', 'm4a'],
+                Programs: ['exe'],
+                Video: ['mp4'],
+            },
             notify: {
                 begin: true,
                 end: true,
@@ -92,6 +98,8 @@ class Downloads {
             }
             if (res.settings != undefined) {
                 this.settings = res.settings
+            } else {
+                this.settings = this.settingsDefault
             }
             if (res.icons != undefined) {
                 this.icons = res.icons
