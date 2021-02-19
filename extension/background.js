@@ -113,8 +113,6 @@ class Downloads {
 
         this.updateBadge()
 
-        this.native = chrome.runtime.connectNative('com.k1dv5.dman')
-
         const msgHandlers = {
             info: this.handleInfo.bind(this),
             add: this.handleAdd.bind(this),
@@ -128,17 +126,21 @@ class Downloads {
             },
         }
 
+        this.catchDownload = this.catchDownload.bind(this)
+
+        this.native = chrome.runtime.connectNative('com.k1dv5.dman')
+        this.native.onDisconnect.addListener(() => {
+            chrome.downloads.onChanged.removeListener(this.catchDownload)
+            if (chrome.runtime.lastError) {
+                notify('Please copy the ID and paste it in the dman prompt.', 'Then reload the extension.', undefined, 7000)
+            }
+        })
         this.native.onMessage.addListener(message => {
             (msgHandlers[message.type] || msgHandlers.default)(message)
         })
 
         // catch downloads
-        chrome.downloads.onChanged.addListener(this.catchDownload.bind(this))
-
-        // this.native.onDisconnect.addListener(() => {
-        //     chrome.storage.local.set({downloads: this.items})
-        // });
-
+        chrome.downloads.onChanged.addListener(this.catchDownload)
     }
 
     // managing icons by keys
