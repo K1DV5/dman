@@ -1,5 +1,5 @@
 // -{go run %f}
-// -{cd dman | go build -o ../bin/}
+// -{cd dman | go build -o ../bin/ -ldflags "-s -w"}
 package main
 
 import (
