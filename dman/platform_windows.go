@@ -46,7 +46,7 @@ func setup() error {
 		return err
 	}
 
-	return execCmd("REG", []string{
+	if err := execCmd("REG", []string{
 		"ADD",
 		"HKCU\\Software\\Google\\Chrome\\NativeMessagingHosts\\" + NAME,
 		"/ve",
@@ -55,7 +55,12 @@ func setup() error {
 		"/d",
 		manifestPath,
 		"/f",
-	})
+	}); err != nil {
+		return err
+	}
+	fmt.Println("\nYou can now reload the extension.\nPress [ENTER] to continue.")
+	os.Stdin.Read(make([]byte, 1))
+	return nil
 }
 
 func execCmd(cmd string, args []string) error {
