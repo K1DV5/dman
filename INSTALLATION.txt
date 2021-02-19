@@ -5,6 +5,7 @@ To install dman on Windows, for Google Chrome:
 3. Enable developer mode, click Load unpacked, and select the extension folder here.
 4. Copy the ID of the extension
 5. Double click dman.exe, paste the ID and press enter.
+6. Reload the extension
 6. (Optional) Disable developer mode
 
 Enjoy!
