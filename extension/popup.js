@@ -226,7 +226,7 @@ function update(id) {
 document.getElementById('remove').addEventListener('click', event => {
     event.preventDefault()
     if (lastFocusItem == null) return
-    if (downloads.remove(lastFocusItem.id)) {
+    if (downloads.remove(Number(lastFocusItem.id))) {
         lastFocusItem.remove()
         lastFocusItem = undefined
         // update buttons
