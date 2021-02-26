@@ -76,7 +76,7 @@ const buttonsOnItems = {
 }
 
 const buttonsByState = {
-    [states.downloading]: ['pause', 'copyUrl', 'changeUrl'],
+    [states.downloading]: ['pause', 'copyUrl'],
     [states.failed]: ['resume', 'copyUrl', 'changeUrl', 'remove'],
     [states.paused]: ['resume', 'copyUrl', 'changeUrl', 'remove'],
     [states.rebuilding]: ['copyUrl'],
