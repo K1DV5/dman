@@ -195,6 +195,18 @@ download-item[focused] {
     outline: none
 }
 
+::-webkit-scrollbar {
+    width: .5em;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #09F4;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #09F6;
+}
+
 /****************** SETTINGS ****************/
 
 ui-settings {
